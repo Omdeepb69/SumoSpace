@@ -189,7 +189,20 @@ class TestPythonASTLoader:
         assert "import os" in texts or "Imports" in texts
 
 
+from unittest.mock import patch, MagicMock
+
+@pytest.fixture
+def mock_embedder():
+    with patch("chromadb.utils.embedding_functions.DefaultEmbeddingFunction") as mock:
+        def fake_embed(texts):
+            return [[0.1] * 384 for _ in texts]
+        instance = MagicMock()
+        instance.side_effect = fake_embed
+        mock.return_value = instance
+        yield instance
+
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("mock_embedder")
 class TestUniversalIngestor:
     async def test_initialize(self, tmp_chroma):
         ingestor = UniversalIngestor(

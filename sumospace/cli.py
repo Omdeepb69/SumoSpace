@@ -55,14 +55,15 @@ def run(
                                    help="Quota: max chunks per scope (0 = unlimited)"),
 ):
     """Execute a task using the full SumoKernel pipeline."""
-    from sumospace.kernel import KernelConfig, SumoKernel
+    from sumospace.settings import SumoSettings
+    from sumospace.kernel import SumoKernel
 
-    config = KernelConfig(
+    settings = SumoSettings(
         provider=provider,
         model=model,
         dry_run=dry_run,
         workspace=workspace,
-        chroma_path=chroma_path,
+        chroma_base=chroma_path,
         require_consensus=not no_consensus,
         verbose=verbose,
         user_id=user_id,
@@ -73,7 +74,7 @@ def run(
     )
 
     async def _run():
-        async with SumoKernel(config) as kernel:
+        async with SumoKernel(settings=settings) as kernel:
             trace = await kernel.run(task)
             if trace.final_answer:
                 console.print("\n[bold]Result:[/bold]")
@@ -153,19 +154,20 @@ def chat(
     chroma_path: str = typer.Option(".sumo_db", "--db"),
 ):
     """Start an interactive chat session (conversational, no tool execution)."""
-    from sumospace.kernel import KernelConfig, SumoKernel
+    from sumospace.settings import SumoSettings
+    from sumospace.kernel import SumoKernel
 
-    config = KernelConfig(
+    settings = SumoSettings(
         provider=provider,
         model=model,
         workspace=workspace,
-        chroma_path=chroma_path,
+        chroma_base=chroma_path,
         verbose=False,
     )
 
     async def _chat():
         console.print("[bold cyan]SumoSpace Chat[/bold cyan]  (Ctrl+C to exit)\n")
-        async with SumoKernel(config) as kernel:
+        async with SumoKernel(settings=settings) as kernel:
             while True:
                 try:
                     user_input = typer.prompt("You")

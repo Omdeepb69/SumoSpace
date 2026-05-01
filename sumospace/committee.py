@@ -135,17 +135,23 @@ Output ONLY JSON. No markdown. No explanation outside the JSON."""
 # ─── Individual Agents ────────────────────────────────────────────────────────
 
 class PlannerAgent:
-    def __init__(self, provider):
+    def __init__(self, provider, templates=None):
         self._provider = provider
+        self._templates = templates
 
     async def plan(self, task: str, context: str = "") -> tuple[ExecutionPlan, str]:
         prompt = f"Task: {task}"
         if context:
             prompt += f"\n\nContext:\n{context}"
 
+        system = (
+            self._templates.raw("planner_prompt") if self._templates
+            else PLANNER_SYSTEM
+        )
+
         raw = await self._provider.complete(
             user=prompt,
-            system=PLANNER_SYSTEM,
+            system=system,
             temperature=0.1,
             max_tokens=2048,
         )
@@ -185,8 +191,9 @@ class PlannerAgent:
 
 
 class CriticAgent:
-    def __init__(self, provider):
+    def __init__(self, provider, templates=None):
         self._provider = provider
+        self._templates = templates
 
     async def critique(
         self,
@@ -208,9 +215,14 @@ class CriticAgent:
             ],
         }, indent=2)
 
+        system = (
+            self._templates.raw("critic_prompt") if self._templates
+            else CRITIC_SYSTEM
+        )
+
         raw = await self._provider.complete(
             user=f"Review this execution plan:\n{plan_json}",
-            system=CRITIC_SYSTEM,
+            system=system,
             temperature=0.1,
             max_tokens=1024,
         )
@@ -230,8 +242,9 @@ class CriticAgent:
 
 
 class ResolverAgent:
-    def __init__(self, provider):
+    def __init__(self, provider, templates=None):
         self._provider = provider
+        self._templates = templates
 
     async def resolve(
         self,
@@ -261,11 +274,15 @@ class ResolverAgent:
         }, indent=2)
 
         raw_clean = ""
+        base_system = (
+            self._templates.raw("resolver_prompt") if self._templates
+            else RESOLVER_SYSTEM
+        )
         for attempt in range(2):
             if attempt == 1:
-                system_prompt = RESOLVER_SYSTEM + "\nCRITICAL: Your previous response was not valid JSON. \nOutput ONLY a raw JSON object. No explanation. No markdown. No backticks.\nStart your response with { and end with }."
+                system_prompt = base_system + "\nCRITICAL: Your previous response was not valid JSON. \nOutput ONLY a raw JSON object. No explanation. No markdown. No backticks.\nStart your response with { and end with }."
             else:
-                system_prompt = RESOLVER_SYSTEM
+                system_prompt = base_system
 
             raw = await self._provider.complete(
                 user=prompt,
@@ -328,10 +345,10 @@ class Committee:
             # Execute verdict.plan
     """
 
-    def __init__(self, provider, planning_provider=None, require_consensus: bool = True):
-        self._planner = PlannerAgent(planning_provider or provider)
-        self._critic = CriticAgent(planning_provider or provider)
-        self._resolver = ResolverAgent(planning_provider or provider)
+    def __init__(self, provider, planning_provider=None, require_consensus: bool = True, templates=None):
+        self._planner = PlannerAgent(planning_provider or provider, templates=templates)
+        self._critic = CriticAgent(planning_provider or provider, templates=templates)
+        self._resolver = ResolverAgent(planning_provider or provider, templates=templates)
         self.require_consensus = require_consensus
 
     async def deliberate(

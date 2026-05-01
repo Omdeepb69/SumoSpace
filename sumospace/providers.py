@@ -310,29 +310,34 @@ class GeminiProvider(BaseProvider):
                 "Gemini package not installed. Run: pip install sumospace[gemini]"
             )
         genai.configure(api_key=self._api_key)
-        self._client = genai.GenerativeModel(model_name=self.model)
 
     async def complete(
         self, user: str, system: str = "", temperature: float = 0.2, max_tokens: int = 2048
     ) -> str:
-        import asyncio
-        prompt = f"{system}\n\n{user}" if system else user
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None, lambda: self._client.generate_content(prompt)
+        import google.generativeai as genai
+        # Fresh model per call — avoids shared state under concurrency
+        model = genai.GenerativeModel(
+            model_name=self.model,
+            generation_config=genai.GenerationConfig(
+                temperature=temperature,
+                max_output_tokens=max_tokens,
+            ),
         )
+        prompt = f"{system}\n\n{user}" if system else user
+        response = await model.generate_content_async(prompt)
         return response.text
 
     async def stream(
         self, user: str, system: str = "", temperature: float = 0.2
     ) -> AsyncIterator[str]:
-        import asyncio
-        prompt = f"{system}\n\n{user}" if system else user
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None, lambda: self._client.generate_content(prompt, stream=True)
+        import google.generativeai as genai
+        model = genai.GenerativeModel(
+            model_name=self.model,
+            generation_config=genai.GenerationConfig(temperature=temperature),
         )
-        for chunk in response:
+        prompt = f"{system}\n\n{user}" if system else user
+        response = await model.generate_content_async(prompt, stream=True)
+        async for chunk in response:
             yield chunk.text
 
 

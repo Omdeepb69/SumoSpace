@@ -28,7 +28,10 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sumospace.settings import SumoSettings
 
 from rich.console import Console
 from rich.panel import Panel
@@ -147,8 +150,30 @@ class SumoKernel:
             trace = await kernel.run("your task")
     """
 
-    def __init__(self, config: KernelConfig | None = None):
-        self.config = config or KernelConfig()
+    def __init__(
+        self,
+        config: KernelConfig | None = None,
+        settings: "SumoSettings | None" = None,
+        hooks: "HookRegistry | None" = None,
+    ):
+        if config is not None and settings is None:
+            import warnings
+            warnings.warn(
+                "Passing KernelConfig directly is deprecated. "
+                "Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). "
+                "KernelConfig support will be removed in v1.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            import dataclasses
+            from sumospace.settings import SumoSettings
+            self.settings = SumoSettings(**dataclasses.asdict(config))
+        elif settings is not None:
+            self.settings = settings
+        else:
+            from sumospace.settings import SumoSettings
+            self.settings = SumoSettings()
+
         self._provider: ProviderRouter | None = None
         self._classifier: SumoClassifier | None = None
         self._committee: Committee | None = None
@@ -158,12 +183,26 @@ class SumoKernel:
         self._rag: RAGPipeline | None = None
         self._initialized = False
 
+        from sumospace.audit import AuditLogger
+        self._audit_logger: AuditLogger | None = AuditLogger(self.settings)
+
+        from sumospace.hooks import HookRegistry
+        self.hooks: HookRegistry = hooks or HookRegistry(verbose=self.settings.verbose)
+
+        from sumospace.templates import TemplateManager
+        self.templates = TemplateManager(
+            template_path=self.settings.prompt_template_path
+        )
+
+        # Auto-load hooks from workspace if enabled
+        self._auto_load_hooks()
+
     async def boot(self):
         """Initialise all subsystems. Called automatically by async context manager."""
         if self._initialized:
             return
 
-        cfg = self.config
+        cfg = self.settings
         try:
             if cfg.verbose:
                 console.print(Panel(
@@ -246,6 +285,7 @@ class SumoKernel:
                 provider=self._provider,
                 planning_provider=self._secondary_provider or self._provider,
                 require_consensus=cfg.require_consensus,
+                templates=self.templates,
             )
 
             self._initialized = True
@@ -253,11 +293,15 @@ class SumoKernel:
             if cfg.verbose:
                 console.print("[bold green]✓ Kernel ready[/bold green]")
 
+            await self.hooks.trigger("on_kernel_boot", self)
+
         except Exception as e:
             raise KernelBootError(f"Kernel boot failed: {e}") from e
 
     async def shutdown(self):
         """Graceful shutdown."""
+        await self.hooks.trigger("on_kernel_shutdown", self)
+
         self._initialized = False
 
         if self._memory and hasattr(self._memory, 'episodic'):
@@ -268,7 +312,7 @@ class SumoKernel:
             except Exception:
                 pass
 
-        if cfg := self.config:
+        if cfg := self.settings:
             if cfg.verbose:
                 console.print("[dim]Kernel shutdown[/dim]")
 
@@ -297,6 +341,7 @@ class SumoKernel:
 
         session_id = session_id or uuid.uuid4().hex[:12]
         start = time.monotonic()
+        verdict = None
 
         trace = ExecutionTrace(
             task=task,
@@ -308,8 +353,10 @@ class SumoKernel:
 
         try:
             # Step 1: Classify
-            if self.config.verbose:
+            if self.settings.verbose:
                 console.print(f"\n[bold]Task:[/bold] {task}")
+
+            await self.hooks.trigger("on_task_start", task, session_id)
 
             recent_ctx = {
                 "recent_messages": [m["content"] for m in self._memory.recent(5)],
@@ -318,7 +365,7 @@ class SumoKernel:
             trace.intent = classification.intent
             trace.classification = classification
 
-            if self.config.verbose:
+            if self.settings.verbose:
                 console.print(
                     f"[dim]Intent: [cyan]{classification.intent.value}[/cyan] "
                     f"({classification.confidence:.0%}) — {classification.reasoning}[/dim]"
@@ -332,13 +379,13 @@ class SumoKernel:
                     if rag_result.chunks:
                         rag_context = rag_result.context
                         trace.rag_context = rag_context
-                        if self.config.verbose:
+                        if self.settings.verbose:
                             console.print(
                                 f"[dim]Retrieved {len(rag_result.chunks)} chunks "
                                 f"(reranked: {rag_result.used_reranker})[/dim]"
                             )
                 except Exception as e:
-                    if self.config.verbose:
+                    if self.settings.verbose:
                         console.print(f"[yellow]RAG skipped: {e}[/yellow]")
 
             # Step 3: Web search (if needed)
@@ -357,7 +404,7 @@ class SumoKernel:
             context_parts.append(f"=== AVAILABLE TOOLS ===\n{tools_str}")
             
             # Inject session context
-            session_info = f"user_id: {self.config.user_id}\nsession_id: {self.config.session_id}"
+            session_info = f"user_id: {self.settings.user_id}\nsession_id: {self.settings.session_id}"
             context_parts.append(f"=== SESSION CONTEXT ===\n{session_info}")
 
             if rag_context:
@@ -370,16 +417,19 @@ class SumoKernel:
             full_context = "\n\n".join(context_parts)
 
             # Step 5: Committee deliberation
-            if self.config.verbose:
+            if self.settings.verbose:
                 console.print("[dim]Committee deliberating...[/dim]")
 
             verdict = await self._committee.deliberate(task, context=full_context)
             trace.plan = verdict.plan
 
             if not verdict.approved:
+                await self.hooks.trigger("on_plan_rejected", verdict.rejection_reason, verdict)
                 raise ConsensusFailedError(f"Committee rejected plan: {verdict.rejection_reason}")
 
-            if self.config.verbose:
+            await self.hooks.trigger("on_plan_approved", verdict.plan, verdict)
+
+            if self.settings.verbose:
                 console.print(
                     f"[green]✓ Plan approved[/green] — "
                     f"{len(verdict.plan.steps)} steps, "
@@ -387,7 +437,7 @@ class SumoKernel:
                 )
 
             # Step 6: Execute (skip if dry_run)
-            if self.config.dry_run:
+            if self.settings.dry_run:
                 trace.final_answer = self._format_dry_run(verdict)
                 trace.success = True
             else:
@@ -407,31 +457,39 @@ class SumoKernel:
             trace.error = str(e)
             trace.success = False
             trace.final_answer = f"Task halted: {e}"
-            if self.config.verbose:
+            if self.settings.verbose:
                 console.print(f"[red]✗ {e}[/red]")
 
         except ExecutionHaltedError as e:
             trace.error = str(e)
             trace.success = False
             trace.final_answer = f"Execution halted at critical step: {e}"
-            if self.config.verbose:
+            if self.settings.verbose:
                 console.print(f"[red]✗ {e}[/red]")
 
         except Exception as e:
             trace.error = str(e)
             trace.success = False
             trace.final_answer = f"Unexpected error: {e}"
-            if self.config.verbose:
+            if self.settings.verbose:
                 console.print_exception()
 
         trace.duration_ms = (time.monotonic() - start) * 1000
 
-        if self.config.verbose:
+        if self.settings.verbose:
             status = "[green]✓ Done[/green]" if trace.success else "[red]✗ Failed[/red]"
             console.print(
                 f"{status} in {trace.duration_ms:.0f}ms — "
                 f"{len(trace.step_traces)} steps executed"
             )
+
+        if self._audit_logger:
+            self._audit_logger.log(trace, verdict)
+
+        if trace.success:
+            await self.hooks.trigger("on_task_complete", trace)
+        else:
+            await self.hooks.trigger("on_task_failed", trace, trace.error)
 
         return trace
 
@@ -440,11 +498,13 @@ class SumoKernel:
     async def _execute_plan(self, plan: ExecutionPlan, trace: ExecutionTrace):
         """Execute each step in the approved plan sequentially."""
         for step in plan.steps:
-            if self.config.verbose:
+            if self.settings.verbose:
                 console.print(
                     f"  [cyan][{step.step_number}/{len(plan.steps)}][/cyan] "
                     f"{step.tool}: {step.description}"
                 )
+
+            await self.hooks.trigger("on_step_start", step)
 
             step_start = time.monotonic()
             result = await self._tools.execute(step.tool, **step.parameters)
@@ -459,11 +519,14 @@ class SumoKernel:
             )
             trace.step_traces.append(step_trace)
 
-            if self.config.verbose:
-                if result.success:
+            if result.success:
+                await self.hooks.trigger("on_step_complete", step_trace)
+                if self.settings.verbose:
                     preview = result.output[:120].replace("\n", " ")
                     console.print(f"    [green]✓[/green] {preview}{'...' if len(result.output) > 120 else ''}")
-                else:
+            else:
+                await self.hooks.trigger("on_step_failed", step, result.error)
+                if self.settings.verbose:
                     console.print(f"    [red]✗ {result.error}[/red]")
 
             if not result.success and step.critical:
@@ -521,6 +584,44 @@ class SumoKernel:
                 import json
                 lines.append(f"    Params: {json.dumps(step.parameters)[:200]}")
         return "\n".join(lines)
+
+    def _auto_load_hooks(self) -> None:
+        """Auto-load hooks from workspace .sumo_hooks.py if enabled."""
+        import importlib.util
+        from pathlib import Path as _Path
+
+        # Explicit module path
+        if self.settings.hooks_module:
+            self._load_hooks_from_path(self.settings.hooks_module)
+            return
+
+        # Auto-discovery from workspace (gated by setting)
+        if self.settings.auto_load_hooks:
+            hooks_file = _Path(self.settings.workspace) / ".sumo_hooks.py"
+            if hooks_file.is_file():
+                self._load_hooks_from_path(str(hooks_file))
+
+    def _load_hooks_from_path(self, path: str) -> None:
+        """Import a Python file and register any decorated hooks."""
+        import importlib.util
+        from pathlib import Path as _Path
+
+        p = _Path(path)
+        if not p.is_file():
+            console.print(f"[yellow]Hooks file not found: {path}[/yellow]")
+            return
+
+        try:
+            spec = importlib.util.spec_from_file_location("sumo_hooks", str(p))
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                # Inject hooks registry so decorators work
+                module.hooks = self.hooks  # type: ignore
+                spec.loader.exec_module(module)
+                if self.settings.verbose:
+                    console.print(f"[dim]Loaded hooks from {path}[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Failed to load hooks from {path}: {e}[/yellow]")
 
     # ── Convenience methods ──────────────────────────────────────────────────
 
