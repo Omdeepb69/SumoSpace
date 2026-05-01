@@ -74,10 +74,14 @@ class KernelConfig:
     execution_timeout: int = 120
     verbose: bool = True
     dry_run: bool = False
+    hf_load_in_4bit: bool = False
+
+    # ── Secondary model (for planning/structured tasks) ──────────────────────
+    secondary_provider: str | None = None
+    secondary_model: str | None = None
 
     # ── Paths ─────────────────────────────────────────────────────────────────
     workspace: str = "."
-    chroma_path: str = ".sumo_db"     # Direct override — bypasses ScopeManager
 
     # ── Scope & isolation ─────────────────────────────────────────────────────
     scope_level: str = "user"         # user | session | project
@@ -85,7 +89,17 @@ class KernelConfig:
     session_id: str = ""              # Session identifier (for session-level scope)
     project_id: str = ""              # Project identifier (for project-level scope)
     chroma_base: str = ".sumo_db"     # Base directory for scoped DB paths
+    chroma_path: str = ""             # Deprecated — use chroma_base
     max_chunks_per_scope: int | None = None   # Quota guard per scope (None = unlimited)
+
+    def __post_init__(self):
+        if self.chroma_path and self.chroma_base == ".sumo_db":
+            import warnings
+            warnings.warn(
+                "chroma_path is deprecated, use chroma_base instead.",
+                DeprecationWarning, stacklevel=2
+            )
+            self.chroma_base = self.chroma_path
 
 
 # ─── Execution Trace ──────────────────────────────────────────────────────────
@@ -167,17 +181,27 @@ class SumoKernel:
             self._provider = ProviderRouter(
                 provider=cfg.provider,
                 model=cfg.model if cfg.model != "default" else None,
+                load_in_4bit=cfg.hf_load_in_4bit,
             )
             await self._provider.initialize()
+
+            self._secondary_provider = None
+            if cfg.secondary_provider:
+                self._secondary_provider = ProviderRouter(
+                    provider=cfg.secondary_provider,
+                    model=cfg.secondary_model,
+                    load_in_4bit=cfg.hf_load_in_4bit,
+                )
+                await self._secondary_provider.initialize()
 
             # 2. Tool registry
             self._tools = ToolRegistry(workspace=cfg.workspace)
 
             # 3. Scope resolution
             #    If user_id is set, build a ScopeManager and resolve paths.
-            #    Otherwise fall back to raw chroma_path for backward compat.
+            #    Otherwise fall back to raw chroma_base.
             scope_mgr = None
-            resolved_chroma = cfg.chroma_path
+            resolved_chroma = cfg.chroma_base
             if cfg.user_id:
                 from sumospace.scope import ScopeManager
                 scope_mgr = ScopeManager(
@@ -220,6 +244,7 @@ class SumoKernel:
             # 6. Committee
             self._committee = Committee(
                 provider=self._provider,
+                planning_provider=self._secondary_provider or self._provider,
                 require_consensus=cfg.require_consensus,
             )
 
@@ -234,6 +259,15 @@ class SumoKernel:
     async def shutdown(self):
         """Graceful shutdown."""
         self._initialized = False
+
+        if self._memory and hasattr(self._memory, 'episodic'):
+            try:
+                client = self._memory.episodic._client
+                if client and hasattr(client, '_system'):
+                    client._system.stop()
+            except Exception:
+                pass
+
         if cfg := self.config:
             if cfg.verbose:
                 console.print("[dim]Kernel shutdown[/dim]")
@@ -316,6 +350,16 @@ class SumoKernel:
 
             # Step 4: Build full context
             context_parts = []
+            
+            # Inject available tools
+            tools_list = self._tools.list_tools()
+            tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in tools_list])
+            context_parts.append(f"=== AVAILABLE TOOLS ===\n{tools_str}")
+            
+            # Inject session context
+            session_info = f"user_id: {self.config.user_id}\nsession_id: {self.config.session_id}"
+            context_parts.append(f"=== SESSION CONTEXT ===\n{session_info}")
+
             if rag_context:
                 context_parts.append(f"=== CODEBASE CONTEXT ===\n{rag_context}")
             if web_context:
@@ -356,6 +400,8 @@ class SumoKernel:
             # Step 8: Persist to memory
             await self._memory.add("user", task)
             await self._memory.add("assistant", trace.final_answer)
+            
+            trace.success = True
 
         except ConsensusFailedError as e:
             trace.error = str(e)
@@ -453,7 +499,7 @@ class SumoKernel:
 
         try:
             return await self._provider.complete(
-                user=user, system=system, temperature=0.2, max_tokens=1024
+                user=user, system=system, temperature=0.1, max_tokens=1024
             )
         except Exception:
             return outputs or "Task completed."
@@ -510,6 +556,6 @@ class SumoKernel:
         history = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in recent[:-1])
         system = "You are Sumo, a helpful AI assistant."
         user = f"{history}\n\nUSER: {message}" if history else message
-        response = await self._provider.complete(user=user, system=system, temperature=0.3)
+        response = await self._provider.complete(user=user, system=system, temperature=0.1)
         await self._memory.add("assistant", response)
         return response

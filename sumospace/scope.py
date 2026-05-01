@@ -30,6 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from filelock import FileLock
+
 
 # ─── Data Models ─────────────────────────────────────────────────────────────
 
@@ -103,14 +105,16 @@ class ScopeManager:
 
         Returns an absolute-ish string path suitable for chromadb.PersistentClient(path=...).
         """
+        if not user_id:
+            # No isolation — use shared default path
+            path = self.chroma_base / "default" / "persistent.db"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return str(path)
+
         if self.level == "user":
-            if not user_id:
-                raise ValueError("user_id required for 'user' scope level")
             path = self.chroma_base / "users" / user_id / "persistent.db"
 
         elif self.level == "session":
-            if not user_id:
-                raise ValueError("user_id required for 'session' scope level")
             if not session_id:
                 raise ValueError("session_id required for 'session' scope level")
             path = self.chroma_base / "users" / user_id / "sessions" / f"{session_id}.db"
@@ -118,8 +122,6 @@ class ScopeManager:
             self._register_session(user_id, session_id)
 
         elif self.level == "project":
-            if not user_id:
-                raise ValueError("user_id required for 'project' scope level")
             if not project_id:
                 raise ValueError("project_id required for 'project' scope level")
             path = (
@@ -161,10 +163,14 @@ class ScopeManager:
 
     def _register_session(self, user_id: str, session_id: str):
         """Add a session entry if it doesn't already exist."""
-        registry = self._load_registry(user_id)
-        if session_id not in registry:
-            registry[session_id] = datetime.now(timezone.utc).isoformat()
-            self._save_registry(user_id, registry)
+        rpath = self._registry_path(user_id)
+        rpath.parent.mkdir(parents=True, exist_ok=True)
+        lock = FileLock(str(rpath.with_suffix(".lock")))
+        with lock:
+            registry = self._load_registry(user_id)
+            if session_id not in registry:
+                registry[session_id] = datetime.now(timezone.utc).isoformat()
+                self._save_registry(user_id, registry)
 
     # ── Session Lifecycle ────────────────────────────────────────────────────
 

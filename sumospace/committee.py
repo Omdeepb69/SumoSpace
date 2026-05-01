@@ -18,6 +18,19 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+def _clean_json(raw: str) -> str:
+    """Strip markdown fences and leading/trailing noise before parsing."""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    # Find first { and last } in case of leading text
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return raw[start:end+1]
+    return raw
+
 
 # ─── Data Models ─────────────────────────────────────────────────────────────
 
@@ -55,10 +68,7 @@ class CommitteeVerdict:
 # ─── Prompts ─────────────────────────────────────────────────────────────────
 
 PLANNER_SYSTEM = """You are the Planner agent in a multi-agent task execution system.
-Your role: Given a task description and available tools, produce a detailed, safe execution plan.
-
-Available tools: read_file, write_file, list_directory, search_files, patch_file,
-shell, web_search, fetch_url, docker, dependencies
+Your role: Given a task description and the list of available tools in the context, produce a detailed, safe execution plan.
 
 Output ONLY a JSON object with this schema:
 {
@@ -77,6 +87,7 @@ Output ONLY a JSON object with this schema:
 }
 
 Rules:
+- Use ONLY the tools listed in the "AVAILABLE TOOLS" section of the context.
 - Be specific. Include actual file paths, commands, parameters.
 - Start with read/scan steps before write steps.
 - Mark destructive operations (write_file, shell rm, etc.) as critical.
@@ -143,7 +154,9 @@ class PlannerAgent:
         return plan, raw_clean
 
     def _parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
-        raw_clean = re.sub(r"```json|```", "", raw).strip()
+        # Extract the first JSON block found in the text
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        raw_clean = match.group(0) if match else raw.strip()
         try:
             data = json.loads(raw_clean)
             steps = [
@@ -164,16 +177,10 @@ class PlannerAgent:
                 estimated_duration_s=float(data.get("estimated_duration_s", 0)),
             ), raw_clean
         except Exception:
-            # Fallback: single shell step
             return ExecutionPlan(
                 task=task,
-                steps=[ExecutionStep(
-                    step_number=1, tool="shell",
-                    description=f"Execute: {task}",
-                    parameters={"command": "echo 'Plan parsing failed; manual intervention needed'"},
-                    critical=True,
-                )],
-                reasoning="Plan parsing failed; using minimal fallback.",
+                steps=[],
+                reasoning="Plan parsing failed; halting to prevent unsafe fallback.",
             ), raw_clean
 
 
@@ -185,7 +192,7 @@ class CriticAgent:
         self,
         plan: ExecutionPlan,
         task: str,
-    ) -> tuple[str, str, list[str], list[str]]:
+    ) -> tuple[str, str, list[str], list[str], str]:
         """Returns: (verdict, reason, risks, blockers)"""
         plan_json = json.dumps({
             "task": task,
@@ -208,7 +215,8 @@ class CriticAgent:
             max_tokens=1024,
         )
 
-        raw_clean = re.sub(r"```json|```", "", raw).strip()
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        raw_clean = match.group(0) if match else raw.strip()
         try:
             data = json.loads(raw_clean)
             verdict = data.get("verdict", "approve")
@@ -252,47 +260,58 @@ class ResolverAgent:
             "blockers": blockers,
         }, indent=2)
 
-        raw = await self._provider.complete(
-            user=prompt,
-            system=RESOLVER_SYSTEM,
-            temperature=0.1,
-            max_tokens=2048,
-        )
+        raw_clean = ""
+        for attempt in range(2):
+            if attempt == 1:
+                system_prompt = RESOLVER_SYSTEM + "\nCRITICAL: Your previous response was not valid JSON. \nOutput ONLY a raw JSON object. No explanation. No markdown. No backticks.\nStart your response with { and end with }."
+            else:
+                system_prompt = RESOLVER_SYSTEM
 
-        raw_clean = re.sub(r"```json|```", "", raw).strip()
-        try:
-            data = json.loads(raw_clean)
-            approved = bool(data.get("approved", False))
-
-            if not approved:
-                return original_plan, False, "", data.get("rejection_reason", "Rejected by resolver")
-
-            steps = [
-                ExecutionStep(
-                    step_number=s.get("step_number", i + 1),
-                    tool=s.get("tool", "shell"),
-                    description=s.get("description", ""),
-                    parameters=s.get("parameters", {}),
-                    expected_output=s.get("expected_output", ""),
-                    critical=s.get("critical", False),
-                )
-                for i, s in enumerate(data.get("steps", []))
-            ]
-            plan = ExecutionPlan(
-                task=task,
-                steps=steps,
-                reasoning=data.get("reasoning", ""),
-                estimated_duration_s=float(data.get("estimated_duration_s", 0)),
-                risks=risks,
-                approved=True,
-                approval_notes=data.get("approval_notes", ""),
+            raw = await self._provider.complete(
+                user=prompt,
+                system=system_prompt,
+                temperature=0.1,
+                max_tokens=2048,
             )
-            return plan, True, plan.approval_notes, raw_clean
-        except Exception as e:
-            # Parse failed — approve original with warning
-            original_plan.approved = True
-            original_plan.risks = risks
-            return original_plan, True, f"Resolver parse failed ({e}); using original", raw_clean
+
+            raw_clean = _clean_json(raw)
+            try:
+                data = json.loads(raw_clean)
+                approved = bool(data.get("approved", False))
+
+                if not approved:
+                    return original_plan, False, "", data.get("rejection_reason", "Rejected by resolver")
+
+                steps = [
+                    ExecutionStep(
+                        step_number=s.get("step_number", i + 1),
+                        tool=s.get("tool", "shell"),
+                        description=s.get("description", ""),
+                        parameters=s.get("parameters", {}),
+                        expected_output=s.get("expected_output", ""),
+                        critical=s.get("critical", False),
+                    )
+                    for i, s in enumerate(data.get("steps", []))
+                ]
+                plan = ExecutionPlan(
+                    task=task,
+                    steps=steps,
+                    reasoning=data.get("reasoning", ""),
+                    estimated_duration_s=float(data.get("estimated_duration_s", 0)),
+                    risks=risks,
+                    approved=True,
+                    approval_notes=data.get("approval_notes", ""),
+                )
+                return plan, True, plan.approval_notes, raw_clean
+            except Exception as e:
+                if attempt == 0:
+                    continue
+                # A parse failure on a flagged plan is NOT approval.
+                return original_plan, False, "", (
+                    f"Resolver output unparseable ({e}). "
+                    "Refusing to approve a critic-flagged plan with unverifiable resolution. "
+                    "Retry or use --no-consensus to bypass."
+                )
 
 
 # ─── Committee ────────────────────────────────────────────────────────────────
@@ -309,10 +328,10 @@ class Committee:
             # Execute verdict.plan
     """
 
-    def __init__(self, provider, require_consensus: bool = True):
-        self._planner = PlannerAgent(provider)
-        self._critic = CriticAgent(provider)
-        self._resolver = ResolverAgent(provider)
+    def __init__(self, provider, planning_provider=None, require_consensus: bool = True):
+        self._planner = PlannerAgent(planning_provider or provider)
+        self._critic = CriticAgent(planning_provider or provider)
+        self._resolver = ResolverAgent(planning_provider or provider)
         self.require_consensus = require_consensus
 
     async def deliberate(

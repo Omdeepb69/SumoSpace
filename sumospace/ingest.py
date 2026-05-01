@@ -13,6 +13,7 @@ Default embedding: BAAI/bge-base-en-v1.5 via sentence-transformers (local, no AP
 from __future__ import annotations
 
 import asyncio
+import ast
 import hashlib
 import os
 from dataclasses import dataclass, field
@@ -99,15 +100,13 @@ class LocalEmbeddingProvider(EmbeddingProvider):
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(None, fn, texts)
             return [list(v) for v in result]
-        except Exception:
-            import random, math
-            dim = 384
-            vecs = []
-            for _ in texts:
-                raw = [random.gauss(0, 1) for _ in range(dim)]
-                norm = math.sqrt(sum(x * x for x in raw))
-                vecs.append([x / norm for x in raw])
-            return vecs
+        except Exception as e:
+            from sumospace.exceptions import IngestError
+            raise IngestError(
+                f"All embedding backends failed: {e}\n"
+                "Install sentence-transformers: pip install sumospace\n"
+                "Or set embedding_provider='google'/'openai' with the matching API key."
+            ) from e
 
 
 class GoogleEmbeddingProvider(EmbeddingProvider):
@@ -198,7 +197,7 @@ class RecursiveTextSplitter:
             else:
                 if current:
                     yield from self._split_recursive(current, remaining_seps)
-                    overlap_text = current[-self.overlap:] if len(current) > self.overlap else current
+                    overlap_text = current[-self.overlap:] if self.overlap > 0 and len(current) > self.overlap else (current if self.overlap > 0 else "")
                     current = overlap_text + (sep if overlap_text else "") + part
                 else:
                     yield from self._split_recursive(part, remaining_seps)

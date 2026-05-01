@@ -56,7 +56,8 @@ class TestPlannerAgent:
 
         agent = PlannerAgent(GarbageProvider())
         plan, raw = await agent.plan("some task")
-        assert len(plan.steps) >= 1  # fallback single step
+        assert len(plan.steps) == 0
+        assert "parsing failed" in plan.reasoning.lower()
 
 
 @pytest.mark.asyncio

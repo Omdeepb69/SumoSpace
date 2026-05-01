@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -186,6 +187,8 @@ class PatchFileTool(BaseTool):
     async def run(self, path: str, patch: str, **_) -> ToolResult:
         import time
         start = time.monotonic()
+        patch_path = None
+        orig_path = None
         try:
             original = Path(path).read_text(encoding="utf-8")
             with tempfile.NamedTemporaryFile(mode="w", suffix=".patch",
@@ -219,10 +222,11 @@ class PatchFileTool(BaseTool):
             return ToolResult(tool=self.name, success=False, output="", error=str(e))
         finally:
             for p in [patch_path, orig_path]:
-                try:
-                    os.unlink(p)
-                except Exception:
-                    pass
+                if p:
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
 
 
 # ─── Shell Tool ───────────────────────────────────────────────────────────────
@@ -231,7 +235,9 @@ class ShellTool(BaseTool):
     name = "shell"
     description = "Run a shell command with timeout. Returns stdout + stderr."
 
-    BLOCKED_COMMANDS = {"rm -rf /", "mkfs", "dd if=/dev/zero", ":(){:|:&};:"}
+    BLOCKED_PATTERNS = [re.compile(p) for p in [
+        r"\brm\s+-r", r"\bmkfs\b", r"\bdd\s+if=", r":\(\)\{.*\}", r"\bchmod\s+-R\s+777\b"
+    ]]
 
     def __init__(self, workspace: str = ".", timeout: int = 60):
         self.workspace = workspace
@@ -251,11 +257,11 @@ class ShellTool(BaseTool):
         cwd = cwd or self.workspace
 
         # Safety check
-        for blocked in self.BLOCKED_COMMANDS:
-            if blocked in command:
+        for pattern in self.BLOCKED_PATTERNS:
+            if pattern.search(command):
                 return ToolResult(
                     tool=self.name, success=False, output="",
-                    error=f"Blocked command: {blocked}",
+                    error=f"Blocked command pattern match: {pattern.pattern}",
                 )
 
         env = os.environ.copy()
@@ -412,7 +418,7 @@ class DockerTool(BaseTool):
         if env:
             for k, v in env.items():
                 parts.append(f"-e {k}={v}")
-        parts.append(image)
+        parts.append(shlex.quote(image))
         if command:
             parts.append(command)
         return await self._shell.run(command=" ".join(parts))

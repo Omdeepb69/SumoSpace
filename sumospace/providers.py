@@ -201,6 +201,7 @@ class OllamaProvider(BaseProvider):
         model: str = "default",
         base_url: str = "http://localhost:11434",
         auto_pull: bool = True,
+        **kwargs,
     ):
         self.model = OLLAMA_DEFAULT_MODELS.get(model, model)
         self.base_url = base_url
@@ -291,7 +292,7 @@ class GeminiProvider(BaseProvider):
     """
     name = "gemini"
 
-    def __init__(self, model: str = "gemini-1.5-flash", api_key: str | None = None):
+    def __init__(self, model: str = "gemini-1.5-flash", api_key: str | None = None, **kwargs):
         self.model = model
         self._api_key = api_key or os.environ.get("GOOGLE_API_KEY", "")
 
@@ -342,7 +343,7 @@ class OpenAIProvider(BaseProvider):
     """
     name = "openai"
 
-    def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None):
+    def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None, **kwargs):
         self.model = model
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
 
@@ -396,7 +397,7 @@ class AnthropicProvider(BaseProvider):
     """
     name = "anthropic"
 
-    def __init__(self, model: str = "claude-3-5-haiku-20241022", api_key: str | None = None):
+    def __init__(self, model: str = "claude-3-5-haiku-20241022", api_key: str | None = None, **kwargs):
         self.model = model
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
 

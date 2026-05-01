@@ -45,6 +45,9 @@ dependencies = [
 
     # Ollama client — free local inference, no key, optional server
     "ollama>=0.2.0",
+
+    # File locking for scope manager
+    "filelock>=3.12",
 ]
 
 [project.optional-dependencies]

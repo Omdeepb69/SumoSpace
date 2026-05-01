@@ -94,99 +94,84 @@ class RuleBasedClassifier:
     Zero latency, zero API calls.
     """
 
-    RULES: list[tuple[re.Pattern, Intent, float]] = [
-        # Debug / Fix
-        (re.compile(r"\b(fix|debug|bug|error|exception|traceback|crash|failing|broken|not working)\b", re.I),
-         Intent.DEBUG_AND_FIX, 0.85),
-
-        # Refactor
-        (re.compile(r"\b(refactor|restructure|clean up|reorganize|improve|simplify|optimize)\b", re.I),
-         Intent.REFACTOR, 0.82),
-
-        # Write code
-        (re.compile(r"\b(write|create|implement|build|generate|add)\b.{0,30}\b(function|class|module|script|endpoint|api|method)\b", re.I),
-         Intent.WRITE_CODE, 0.85),
-
+    TIER1_RULES: list[tuple[re.Pattern, Intent, float]] = [
         # Write tests
         (re.compile(r"\b(write|add|create|generate)\b.{0,20}\b(test|tests|unit test|pytest|spec)\b", re.I),
-         Intent.WRITE_TESTS, 0.90),
-
-        # Code review
-        (re.compile(r"\b(review|audit|check|analyse|analyze)\b.{0,20}\b(code|file|module|pr|pull request)\b", re.I),
-         Intent.CODE_REVIEW, 0.85),
-
-        # Explain code
-        (re.compile(r"\b(explain|describe|what does|how does|walk me through|summarize)\b.{0,20}\b(code|function|class|method|file)\b", re.I),
-         Intent.EXPLAIN_CODE, 0.85),
-
-        # Scan directory
-        (re.compile(r"\b(list|scan|find|show|ls)\b.{0,20}\b(file|files|directory|dir|folder|repo)\b", re.I),
-         Intent.SCAN_DIRECTORY, 0.88),
-
-        # Read file
-        (re.compile(r"\b(read|open|cat|show|print|display)\b.{0,20}\b(file|\.py|\.js|\.ts|\.md|\.json|\.yaml)\b", re.I),
-         Intent.READ_FILE, 0.85),
-
-        # Write file
-        (re.compile(r"\b(write|save|create|update|edit|modify)\b.{0,20}\b(file|\.py|\.js|\.ts|\.md|\.json|\.yaml)\b", re.I),
-         Intent.WRITE_FILE, 0.80),
-
-        # Run command
-        (re.compile(r"\b(run|execute|bash|shell|terminal|cmd|command)\b", re.I),
-         Intent.RUN_COMMAND, 0.82),
-
+         Intent.WRITE_TESTS, 0.92),
         # Docker
         (re.compile(r"\b(docker|container|dockerfile|compose|image|pod|k8s|kubernetes)\b", re.I),
-         Intent.DOCKER_OPERATION, 0.90),
-
+         Intent.DOCKER_OPERATION, 0.92),
         # Dependencies
         (re.compile(r"\b(pip|npm|yarn|poetry|install|package|dependency|requirements|pyproject)\b", re.I),
          Intent.DEPENDENCY_MANAGEMENT, 0.88),
-
-        # Web search
-        (re.compile(r"\b(search|google|look up|find online|latest|current|news|today)\b", re.I),
-         Intent.WEB_SEARCH, 0.80),
-
-        # Document QA
-        (re.compile(r"\b(from the doc|according to|in the document|in the file|based on)\b", re.I),
-         Intent.DOCUMENT_QA, 0.85),
-
-        # Summarize
-        (re.compile(r"\b(summarize|summary|tldr|tl;dr|brief|overview)\b", re.I),
-         Intent.SUMMARIZE, 0.88),
-
-        # Research
-        (re.compile(r"\b(research|investigate|explore|compare|benchmark|evaluate)\b", re.I),
-         Intent.RESEARCH, 0.78),
-
         # Ingest
         (re.compile(r"\b(ingest|index|embed|vectorize|load into|store in)\b", re.I),
          Intent.INGEST_DATA, 0.90),
+        # Code review
+        (re.compile(r"\b(review|audit|check|analyse|analyze)\b.{0,20}\b(code|file|module|pr|pull request)\b", re.I),
+         Intent.CODE_REVIEW, 0.85),
+        # Explain code
+        (re.compile(r"\b(explain|describe|what does|how does|walk me through|summarize)\b.{0,20}\b(code|function|class|method|file)\b", re.I),
+         Intent.EXPLAIN_CODE, 0.85),
+        # Debug / Fix
+        (re.compile(r"\b(fix|debug|bug|error|exception|traceback|crash|failing|broken|not working)\b", re.I),
+         Intent.DEBUG_AND_FIX, 0.85),
+    ]
+
+    TIER2_RULES: list[tuple[re.Pattern, Intent, float]] = [
+        # Write code
+        (re.compile(r"\b(write|create|implement|build|generate|add)\b.{0,30}\b(function|class|module|script|endpoint|api|method)\b", re.I),
+         Intent.WRITE_CODE, 0.85),
+        # Scan directory
+        (re.compile(r"\b(list|scan|find|show|ls)\b.{0,20}\b(file|files|directory|dir|folder|repo)\b", re.I),
+         Intent.SCAN_DIRECTORY, 0.88),
+        # Read file
+        (re.compile(r"\b(read|open|cat|show|print|display)\b.{0,20}\b(file|\.py|\.js|\.ts|\.md|\.json|\.yaml)\b", re.I),
+         Intent.READ_FILE, 0.85),
+        # Run command
+        (re.compile(r"\b(run|execute|bash|shell|terminal|cmd|command)\b", re.I),
+         Intent.RUN_COMMAND, 0.82),
+        # Web search
+        (re.compile(r"\b(search|google|look up|find online|latest|current|news|today)\b", re.I),
+         Intent.WEB_SEARCH, 0.80),
+        # Document QA
+        (re.compile(r"\b(from the doc|according to|in the document|in the file|based on)\b", re.I),
+         Intent.DOCUMENT_QA, 0.85),
+        # Summarize
+        (re.compile(r"\b(summarize|summary|tldr|tl;dr|brief|overview)\b", re.I),
+         Intent.SUMMARIZE, 0.88),
+        # Research
+        (re.compile(r"\b(research|investigate|explore|compare|benchmark|evaluate)\b", re.I),
+         Intent.RESEARCH, 0.78),
+    ]
+
+    TIER3_RULES: list[tuple[re.Pattern, Intent, float]] = [
+        # Refactor
+        (re.compile(r"\b(refactor|restructure|clean up|reorganize|improve|simplify|optimize)\b", re.I),
+         Intent.REFACTOR, 0.82),
+        # Write file
+        (re.compile(r"\b(write|save|create|update|edit|modify)\b.{0,20}\b(file|\.py|\.js|\.ts|\.md|\.json|\.yaml)\b", re.I),
+         Intent.WRITE_FILE, 0.78),
     ]
 
     def classify(self, text: str) -> ClassificationResult | None:
-        best_intent: Intent | None = None
-        best_confidence = 0.0
-        best_pattern = ""
-
-        for pattern, intent, confidence in self.RULES:
-            if pattern.search(text):
-                if confidence > best_confidence:
-                    best_intent = intent
-                    best_confidence = confidence
-                    best_pattern = pattern.pattern
-
-        if best_intent is None:
-            return None
-
-        return ClassificationResult(
-            intent=best_intent,
-            confidence=best_confidence,
-            needs_execution=best_intent in EXECUTION_INTENTS,
-            needs_web=best_intent in WEB_INTENTS,
-            needs_retrieval=best_intent in RETRIEVAL_INTENTS,
-            reasoning=f"rule-match: '{best_pattern}' ({best_confidence:.2f})",
-        )
+        for tier in [self.TIER1_RULES, self.TIER2_RULES, self.TIER3_RULES]:
+            best = max(
+                ((p, i, c) for p, i, c in tier if p.search(text)),
+                key=lambda x: x[2],
+                default=None
+            )
+            if best:
+                pattern, intent, confidence = best
+                return ClassificationResult(
+                    intent=intent,
+                    confidence=confidence,
+                    needs_execution=intent in EXECUTION_INTENTS,
+                    needs_web=intent in WEB_INTENTS,
+                    needs_retrieval=intent in RETRIEVAL_INTENTS,
+                    reasoning=f"rule-tier-match: '{pattern.pattern}' ({confidence:.2f})",
+                )
+        return None
 
 
 # ─── Stage 2: Zero-Shot NLI Classifier ───────────────────────────────────────

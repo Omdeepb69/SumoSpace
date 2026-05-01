@@ -79,83 +79,97 @@ class TestWorkingMemory:
 
 @pytest.mark.asyncio
 class TestEpisodicMemory:
+    def teardown_method(self, method):
+        if hasattr(self, "mem") and self.mem and self.mem._client:
+            try:
+                self.mem._client._system.stop()
+            except Exception:
+                pass
+
     async def test_initialize(self, tmp_chroma):
-        mem = EpisodicMemory(chroma_path=tmp_chroma)
-        await mem.initialize()
-        assert mem._client is not None
-        assert mem._collection is not None
+        self.mem = EpisodicMemory(chroma_path=tmp_chroma)
+        await self.mem.initialize()
+        assert self.mem._client is not None
+        assert self.mem._collection is not None
 
     async def test_store_and_recall(self, tmp_chroma):
-        mem = EpisodicMemory(chroma_path=tmp_chroma)
-        await mem.initialize()
+        self.mem = EpisodicMemory(chroma_path=tmp_chroma)
+        await self.mem.initialize()
 
         entry = MemoryEntry(
             role="user",
             content="The authentication system uses JWT tokens for session management.",
             session_id="sess1",
         )
-        await mem.store(entry)
+        await self.mem.store(entry)
 
-        results = await mem.recall("JWT authentication", top_k=1)
+        results = await self.mem.recall("JWT authentication", top_k=1)
         assert len(results) >= 1
         assert "JWT" in results[0].content or results[0].content
 
     async def test_store_message_helper(self, tmp_chroma):
-        mem = EpisodicMemory(chroma_path=tmp_chroma)
-        await mem.initialize()
-        await mem.store_message("user", "hello world", session_id="s1")
-        results = await mem.recall("hello", top_k=1)
+        self.mem = EpisodicMemory(chroma_path=tmp_chroma)
+        await self.mem.initialize()
+        await self.mem.store_message("user", "hello world", session_id="s1")
+        results = await self.mem.recall("hello", top_k=1)
         assert len(results) >= 1
 
     async def test_working_memory_updated_on_store(self, tmp_chroma):
-        mem = EpisodicMemory(chroma_path=tmp_chroma)
-        await mem.initialize()
+        self.mem = EpisodicMemory(chroma_path=tmp_chroma)
+        await self.mem.initialize()
         entry = MemoryEntry(role="user", content="test message")
-        await mem.store(entry)
-        assert len(mem.working) == 1
+        await self.mem.store(entry)
+        assert len(self.mem.working) == 1
 
     async def test_count(self, tmp_chroma):
-        mem = EpisodicMemory(chroma_path=tmp_chroma)
-        await mem.initialize()
-        assert mem.count == 0
-        await mem.store_message("user", "first")
-        await mem.store_message("assistant", "second")
-        assert mem.count == 2
+        self.mem = EpisodicMemory(chroma_path=tmp_chroma)
+        await self.mem.initialize()
+        assert self.mem.count == 0
+        await self.mem.store_message("user", "first")
+        await self.mem.store_message("assistant", "second")
+        assert self.mem.count == 2
 
 
 @pytest.mark.asyncio
 class TestMemoryManager:
+    def teardown_method(self, method):
+        if hasattr(self, "mgr") and self.mgr and self.mgr.episodic._client:
+            try:
+                self.mgr.episodic._client._system.stop()
+            except Exception:
+                pass
+
     async def test_initialize(self, tmp_chroma):
-        mgr = MemoryManager(chroma_path=tmp_chroma, session_id="test-session")
-        await mgr.initialize()
-        assert mgr.session_id == "test-session"
+        self.mgr = MemoryManager(chroma_path=tmp_chroma, session_id="test-session")
+        await self.mgr.initialize()
+        assert self.mgr.session_id == "test-session"
 
     async def test_add_and_recent(self, tmp_chroma):
-        mgr = MemoryManager(chroma_path=tmp_chroma)
-        await mgr.initialize()
-        await mgr.add("user", "What is Python?")
-        await mgr.add("assistant", "Python is a programming language.")
-        recent = mgr.recent(10)
+        self.mgr = MemoryManager(chroma_path=tmp_chroma)
+        await self.mgr.initialize()
+        await self.mgr.add("user", "What is Python?")
+        await self.mgr.add("assistant", "Python is a programming language.")
+        recent = self.mgr.recent(10)
         assert len(recent) == 2
         assert recent[0]["role"] == "user"
         assert recent[1]["role"] == "assistant"
 
     async def test_recall(self, tmp_chroma):
-        mgr = MemoryManager(chroma_path=tmp_chroma)
-        await mgr.initialize()
-        await mgr.add("user", "Explain dependency injection in software design.")
-        await mgr.add("assistant", "Dependency injection is a design pattern where dependencies are provided externally.")
-        results = await mgr.recall("design patterns", top_k=2)
+        self.mgr = MemoryManager(chroma_path=tmp_chroma)
+        await self.mgr.initialize()
+        await self.mgr.add("user", "Explain dependency injection in software design.")
+        await self.mgr.add("assistant", "Dependency injection is a design pattern where dependencies are provided externally.")
+        results = await self.mgr.recall("design patterns", top_k=2)
         assert len(results) >= 1
 
     async def test_session_id_auto_generated(self, tmp_chroma):
-        mgr = MemoryManager(chroma_path=tmp_chroma)
-        assert len(mgr.session_id) == 12  # 12 hex chars
+        self.mgr = MemoryManager(chroma_path=tmp_chroma)
+        assert len(self.mgr.session_id) == 12  # 12 hex chars
 
     async def test_context_string(self, tmp_chroma):
-        mgr = MemoryManager(chroma_path=tmp_chroma)
-        await mgr.initialize()
-        await mgr.add("user", "First message")
-        await mgr.add("assistant", "First response")
-        ctx = mgr.context_string()
+        self.mgr = MemoryManager(chroma_path=tmp_chroma)
+        await self.mgr.initialize()
+        await self.mgr.add("user", "First message")
+        await self.mgr.add("assistant", "First response")
+        ctx = self.mgr.context_string()
         assert "user" in ctx.lower() or "First" in ctx

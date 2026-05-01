@@ -133,6 +133,25 @@ class TestSessionRegistry:
         data = scope._load_registry("alice")
         assert len(data) == 1
 
+    def test_concurrent_session_registration_no_corruption(self, tmp_path):
+        import threading
+        import uuid
+        
+        scope = ScopeManager(chroma_base=str(tmp_path), level="session")
+        errors = []
+        
+        def register():
+            try:
+                scope.resolve(user_id="alice", session_id=uuid.uuid4().hex)
+            except Exception as e:
+                errors.append(e)
+                
+        threads = [threading.Thread(target=register) for _ in range(20)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        
+        assert not errors
+
 
 # ─── Session Listing ─────────────────────────────────────────────────────────
 
