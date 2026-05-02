@@ -1,9 +1,9 @@
 import pytest
+from unittest.mock import patch, AsyncMock, MagicMock
 from sumospace.kernel import SumoKernel
 from sumospace.settings import SumoSettings
 from sumospace.utils.tokens import estimate_tokens
 
-from unittest.mock import patch, AsyncMock
 
 def test_context_truncation_logic(tmp_path):
     settings = SumoSettings(workspace=str(tmp_path))
@@ -13,6 +13,13 @@ def test_context_truncation_logic(tmp_path):
          patch("sumospace.memory.MemoryManager"), \
          patch("sumospace.ingest.UniversalIngestor"):
         kernel = SumoKernel(settings=settings)
+    
+    # Mock _tools so _build_full_context can call list_tools()
+    kernel._tools = MagicMock()
+    kernel._tools.list_tools.return_value = [
+        {"name": "shell", "description": "Run a shell command"},
+        {"name": "read_file", "description": "Read a file"},
+    ]
     
     task = "Find the bug"
     # Large contexts to force truncation

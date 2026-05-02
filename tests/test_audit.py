@@ -56,7 +56,7 @@ def test_list_sessions(audit_logger):
         trace.success = True
         audit_logger.log(trace)
         
-    sessions = audit_logger.list_sessions(limit=3)
+    sessions = audit_logger.list(limit=3)
     assert len(sessions) == 3
     assert sessions[0]["task"] == "Task 4"  # Most recent first
 

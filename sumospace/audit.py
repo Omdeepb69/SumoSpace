@@ -71,7 +71,7 @@ class AuditLogger:
         lock_file = self.log_dir / "stats_index.json.lock"
         
         try:
-            with FileLock(lock_file, timeout=5):
+            with FileLock(lock_file, timeout=10):
                 if index_file.exists():
                     with open(index_file, "r", encoding="utf-8") as f:
                         stats = json.load(f)

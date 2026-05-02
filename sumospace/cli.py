@@ -244,25 +244,59 @@ def run(
                                     help="Isolation level: user | session | project"),
     max_chunks: int = typer.Option(0, "--max-chunks",
                                    help="Quota: max chunks per scope (0 = unlimited)"),
+    no_committee: bool = typer.Option(False, "--no-committee", help="Skip committee, direct inference only"),
+    plan_only: bool = typer.Option(False, "--plan-only", help="Plan but do not execute"),
+    no_rag: bool = typer.Option(False, "--no-rag", help="Skip RAG retrieval"),
+    preset: str = typer.Option("", "--preset", help="Use a named preset: chat, chat-with-context, chat-stateless, coding, research, review"),
 ):
     """Execute a task using the full SumoKernel pipeline."""
     from sumospace.settings import SumoSettings
     from sumospace.kernel import SumoKernel
 
-    settings = SumoSettings(
-        provider=provider,
-        model=model,
-        dry_run=dry_run,
-        workspace=workspace,
-        chroma_base=chroma_path,
-        require_consensus=not no_consensus,
-        verbose=verbose,
-        user_id=user_id,
-        session_id=session_id,
-        project_id=project_id,
-        scope_level=scope_level,
-        max_chunks_per_scope=max_chunks or None,
-    )
+    if preset:
+        preset_map = {
+            "chat": SumoSettings.for_chat,
+            "chat-with-context": SumoSettings.for_chat_with_context,
+            "chat-stateless": SumoSettings.for_chat_stateless,
+            "coding": SumoSettings.for_coding,
+            "research": SumoSettings.for_research,
+            "review": SumoSettings.for_review,
+        }
+        if preset not in preset_map:
+            console.print(f"[red]Unknown preset '{preset}'. Choose: {list(preset_map.keys())}[/red]")
+            raise typer.Exit(1)
+        settings = preset_map[preset](
+            provider=provider, 
+            model=model,
+            dry_run=dry_run,
+            workspace=workspace,
+            chroma_base=chroma_path,
+            require_consensus=not no_consensus,
+            verbose=verbose,
+            user_id=user_id,
+            session_id=session_id,
+            project_id=project_id,
+            scope_level=scope_level,
+            max_chunks_per_scope=max_chunks or None,
+        )
+    else:
+        settings = SumoSettings(
+            provider=provider,
+            model=model,
+            dry_run=dry_run,
+            workspace=workspace,
+            chroma_base=chroma_path,
+            require_consensus=not no_consensus,
+            verbose=verbose,
+            user_id=user_id,
+            session_id=session_id,
+            project_id=project_id,
+            scope_level=scope_level,
+            max_chunks_per_scope=max_chunks or None,
+            committee_enabled=not no_committee,
+            execution_enabled=not plan_only,
+            rag_enabled=not no_rag,
+        )
 
     async def _run():
         async with SumoKernel(settings=settings) as kernel:

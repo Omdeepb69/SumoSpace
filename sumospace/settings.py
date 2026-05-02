@@ -1,4 +1,5 @@
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Literal
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
@@ -26,6 +27,48 @@ class SumoSettings(BaseSettings):
     embedding_model: str = "BAAI/bge-base-en-v1.5"
 
     require_consensus: bool = True
+    
+    # ── Inference Pipeline Toggles ───────────────────────────────────────────
+    committee_enabled: bool = Field(
+        True,
+        description=(
+            "If False, bypasses the three-agent committee entirely. "
+            "The kernel sends the task directly to the provider as a single inference call. "
+            "Faster and cheaper, but no planning, no safety review, no execution steps. "
+            "Best for simple Q&A, summarisation, or chat use cases."
+        )
+    )
+    committee_mode: Literal["full", "plan_only", "critique_only"] = Field(
+        "full",
+        description=(
+            "Controls which committee agents run when committee_enabled=True.\n"
+            "'full'          — Planner + Critic + Resolver (default, safest)\n"
+            "'plan_only'     — Planner only, no critique or resolution. Faster.\n"
+            "'critique_only' — Planner + Critic, no Resolver. Plan executes if Critic approves."
+        )
+    )
+    committee_temperature: float = 0.1
+    committee_max_tokens: int = 2048
+    
+    execution_enabled: bool = Field(
+        True,
+        description=(
+            "If False, the kernel plans and deliberates but does not execute any tools. "
+            "The plan is returned in the trace but no filesystem, shell, or web calls are made. "
+            "Equivalent to dry_run=True but permanent and settings-driven."
+        )
+    )
+    rag_enabled: bool = Field(
+        True,
+        description="If False, skips vector store retrieval entirely. Faster for tasks that don't need codebase context."
+    )
+    rag_top_k_final: int = 5
+    memory_enabled: bool = Field(
+        True,
+        description="If False, disables episodic memory read and write. Each run is completely stateless."
+    )
+    shell_sandbox: bool = False
+    
     max_retries: int = 3
     execution_timeout: int = 120
     verbose: bool = True
@@ -58,6 +101,96 @@ class SumoSettings(BaseSettings):
     # ── Observability ──────────────────────────────────────────────────────────
     telemetry_enabled: bool = False
     telemetry_endpoint: str = "http://localhost:4317"
+
+    # ── Presets ───────────────────────────────────────────────────────────────
+    
+    @classmethod
+    def for_chat(cls, **kwargs) -> "SumoSettings":
+        """
+        Conversational chat with memory but no planning or tool execution.
+        Use this for multi-turn conversations where the model needs to
+        remember what was said earlier in the session.
+        No committee, no RAG, no tool calls. Fast response times.
+        """
+        defaults = {
+            "committee_enabled": False,
+            "rag_enabled": False,
+            "memory_enabled": True,
+            "execution_enabled": False,
+        }
+        defaults.update(kwargs)
+        return cls(**defaults)
+
+    @classmethod
+    def for_chat_with_context(cls, **kwargs) -> "SumoSettings":
+        """
+        Conversational chat grounded in your codebase or documents.
+        Use this when users ask questions about ingested content —
+        'explain this function', 'where is X defined', 'summarise this doc'.
+        No committee, no tool execution. RAG + memory enabled.
+        """
+        defaults = {
+            "committee_enabled": False,
+            "rag_enabled": True,
+            "memory_enabled": True,
+            "execution_enabled": False,
+        }
+        defaults.update(kwargs)
+        return cls(**defaults)
+
+    @classmethod
+    def for_chat_stateless(cls, **kwargs) -> "SumoSettings":
+        """
+        Pure stateless single-turn inference. Fastest possible response.
+        Every message is independent — no memory of previous turns.
+        Use for one-shot Q&A, summarisation, or classification tasks
+        where conversation history is irrelevant.
+        """
+        defaults = {
+            "committee_enabled": False,
+            "rag_enabled": False,
+            "memory_enabled": False,
+            "execution_enabled": False,
+        }
+        defaults.update(kwargs)
+        return cls(**defaults)
+
+    @classmethod
+    def for_coding(cls, **kwargs) -> "SumoSettings":
+        """Full pipeline optimised for code tasks."""
+        defaults = {
+            "committee_enabled": True,
+            "committee_mode": "full",
+            "rag_enabled": True,
+            "rag_top_k_final": 8,
+            "shell_sandbox": True,
+        }
+        defaults.update(kwargs)
+        return cls(**defaults)
+
+    @classmethod
+    def for_research(cls, **kwargs) -> "SumoSettings":
+        """Planning + web search, no code execution."""
+        defaults = {
+            "committee_enabled": True,
+            "committee_mode": "plan_only",
+            "rag_enabled": True,
+            "execution_enabled": True,
+            "shell_sandbox": True,
+        }
+        defaults.update(kwargs)
+        return cls(**defaults)
+
+    @classmethod
+    def for_review(cls, **kwargs) -> "SumoSettings":
+        """Plan and critique only — never executes. Safe for untrusted tasks."""
+        defaults = {
+            "committee_enabled": True,
+            "committee_mode": "full",
+            "execution_enabled": False,
+        }
+        defaults.update(kwargs)
+        return cls(**defaults)
 
     @classmethod
     def from_file(cls, path: str) -> "SumoSettings":

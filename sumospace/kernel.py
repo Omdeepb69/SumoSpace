@@ -396,9 +396,10 @@ class SumoKernel:
 
             await self.hooks.trigger("on_task_start", task, session_id)
 
-            recent_ctx = {
-                "recent_messages": [m["content"] for m in self._memory.recent(5)],
-            }
+            recent_ctx = {}
+            if self.settings.memory_enabled:
+                recent_ctx["recent_messages"] = [m["content"] for m in self._memory.recent(5)]
+
             async with self.telemetry.async_span("sumospace.classify", attributes={"task": task}):
                 classification = await self._classifier.classify(task, context=recent_ctx)
             trace.intent = classification.intent
@@ -412,7 +413,7 @@ class SumoKernel:
 
             # Step 2: RAG retrieval (if needed)
             rag_context = ""
-            if classification.needs_retrieval:
+            if self.settings.rag_enabled and classification.needs_retrieval:
                 async with self.telemetry.async_span("sumospace.rag.retrieve", attributes={"task": task}):
                     try:
                         rag_result = await self._rag.retrieve(task)
@@ -436,18 +437,44 @@ class SumoKernel:
                 if web_result.success:
                     web_context = web_result.output
 
-            # Step 4: Build full context
+            # Build full context
             full_context = self._build_full_context(
                 task=task,
                 rag_context=rag_context,
                 web_context=web_context,
-                memory_str=self._memory.context_string(5) if self._memory.recent(1) else ""
+                memory_str=self._memory.context_string(5) if self.settings.memory_enabled and self._memory.recent(1) else ""
             )
+
+            # Direct Inference Bypass
+            if not self.settings.committee_enabled:
+                if self.settings.verbose:
+                    console.print("[dim]Committee disabled — direct inference[/dim]")
+                prompt = f"{task}\n\nContext:\n{rag_context}" if rag_context else task
+                answer = await self._provider.complete(
+                    user=prompt,
+                    system=self.templates.get("system_prompt"),
+                    temperature=self.settings.committee_temperature,
+                    max_tokens=self.settings.committee_max_tokens,
+                )
+                trace.final_answer = answer
+                trace.success = True
+                trace.plan = None
+                
+                if self.settings.memory_enabled:
+                    await self._memory.add("user", task)
+                    await self._memory.add("assistant", trace.final_answer)
+                
+                trace.duration_ms = (time.monotonic() - start) * 1000
+                if self._audit_logger:
+                    self._audit_logger.log(trace, verdict=None)
+                await self.hooks.trigger("on_task_complete", trace)
+                return trace
 
             # Step 5: Committee deliberation
             cached_plan = self._cache.get(task, full_context)
             if cached_plan:
                 if self.settings.verbose:
+
                     console.print("[dim]Using cached execution plan[/dim]")
                 verdict = CommitteeVerdict(
                     approved=True, plan=cached_plan, rejection_reason="", 
@@ -457,8 +484,8 @@ class SumoKernel:
                 if self.settings.verbose:
                     console.print("[dim]Committee deliberating...[/dim]")
 
-                async with self.telemetry.async_span("sumospace.committee.deliberate", attributes={"task": task}):
-                    verdict = await self._committee.deliberate(task, context=full_context)
+                async with self.telemetry.async_span("sumospace.committee.deliberate", attributes={"task": task, "committee.mode": self.settings.committee_mode, "committee.enabled": self.settings.committee_enabled}):
+                    verdict = await self._committee.deliberate(task, context=full_context, mode=self.settings.committee_mode)
                 
                 if verdict.approved:
                     self._cache.set(task, full_context, verdict.plan)
@@ -494,8 +521,10 @@ class SumoKernel:
                 trace.final_answer = "".join(answer_parts)
 
             # Step 8: Persist to memory
-            await self._memory.add("user", task)
-            await self._memory.add("assistant", trace.final_answer)
+            if self.settings.memory_enabled:
+                await self._memory.add("user", task)
+                await self._memory.add("assistant", trace.final_answer)
+
             
             trace.success = True
 
@@ -585,16 +614,16 @@ class SumoKernel:
         try:
             await self.hooks.trigger("on_task_start", task, session_id)
 
-            recent_ctx = {
-                "recent_messages": [m["content"] for m in self._memory.recent(5)],
-            }
+            recent_ctx = {}
+            if self.settings.memory_enabled:
+                recent_ctx["recent_messages"] = [m["content"] for m in self._memory.recent(5)]
             async with self.telemetry.async_span("sumospace.classify", attributes={"task": task}):
                 classification = await self._classifier.classify(task, context=recent_ctx)
             trace.intent = classification.intent
             trace.classification = classification
 
             rag_context = ""
-            if classification.needs_retrieval:
+            if self.settings.rag_enabled and classification.needs_retrieval:
                 async with self.telemetry.async_span("sumospace.rag.retrieve", attributes={"task": task}):
                     try:
                         rag_result = await self._rag.retrieve(task)
@@ -616,8 +645,36 @@ class SumoKernel:
                 task=task,
                 rag_context=rag_context,
                 web_context=web_context,
-                memory_str=self._memory.context_string(5) if self._memory.recent(1) else ""
+                memory_str=self._memory.context_string(5) if self.settings.memory_enabled and self._memory.recent(1) else ""
             )
+
+            # Direct Inference Bypass
+            if not self.settings.committee_enabled:
+                prompt = f"{task}\n\nContext:\n{rag_context}" if rag_context else task
+                answer_parts = []
+                async for chunk in self._provider.stream(
+                    user=prompt,
+                    system=self.templates.get("system_prompt"),
+                    temperature=self.settings.committee_temperature,
+                    max_tokens=self.settings.committee_max_tokens,
+                ):
+                    answer_parts.append(chunk)
+                    yield SynthesisChunk(chunk)
+                
+                trace.final_answer = "".join(answer_parts)
+                trace.success = True
+                trace.plan = None
+                
+                if self.settings.memory_enabled:
+                    await self._memory.add("user", task)
+                    await self._memory.add("assistant", trace.final_answer)
+                
+                trace.duration_ms = (time.monotonic() - start) * 1000
+                if self._audit_logger:
+                    self._audit_logger.log(trace, verdict=None)
+                await self.hooks.trigger("on_task_complete", trace)
+                yield trace
+                return
 
             cached_plan = self._cache.get(task, full_context)
             if cached_plan:
@@ -626,8 +683,8 @@ class SumoKernel:
                     planner_output="CACHED", critic_output="CACHED", resolver_output="CACHED"
                 )
             else:
-                async with self.telemetry.async_span("sumospace.committee.deliberate", attributes={"task": task}):
-                    verdict = await self._committee.deliberate(task, context=full_context)
+                async with self.telemetry.async_span("sumospace.committee.deliberate", attributes={"task": task, "committee.mode": self.settings.committee_mode, "committee.enabled": self.settings.committee_enabled}):
+                    verdict = await self._committee.deliberate(task, context=full_context, mode=self.settings.committee_mode)
                 if verdict.approved:
                     self._cache.set(task, full_context, verdict.plan)
 
@@ -647,8 +704,10 @@ class SumoKernel:
 
             await self.hooks.trigger("on_plan_approved", verdict.plan, verdict)
 
-            if self.settings.dry_run:
+            if self.settings.dry_run or not self.settings.execution_enabled:
                 trace.final_answer = self._format_dry_run(verdict)
+                if not self.settings.execution_enabled:
+                    trace.final_answer = trace.final_answer.replace("[DRY RUN]", "[EXECUTION DISABLED]")
                 trace.success = True
             else:
                 for step in verdict.plan.steps:
@@ -683,8 +742,9 @@ class SumoKernel:
                     yield SynthesisChunk(delta=chunk)
                 trace.final_answer = "".join(answer_parts)
 
-            await self._memory.add("user", task)
-            await self._memory.add("assistant", trace.final_answer)
+            if self.settings.memory_enabled:
+                await self._memory.add("user", task)
+                await self._memory.add("assistant", trace.final_answer)
             trace.success = True
 
         except Exception as e:
@@ -707,6 +767,14 @@ class SumoKernel:
 
     async def _execute_plan(self, plan: ExecutionPlan, trace: ExecutionTrace):
         """Execute each step in the approved plan sequentially."""
+        if not self.settings.execution_enabled:
+            trace.final_answer = (
+                f"[Execution disabled] Plan has {len(plan.steps)} steps:\n" +
+                "\n".join(f"  {i+1}. {s.tool}: {s.description}" for i, s in enumerate(plan.steps))
+            )
+            trace.success = True
+            return
+            
         for step in plan.steps:
             if self.settings.verbose:
                 console.print(

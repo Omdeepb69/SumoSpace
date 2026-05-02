@@ -378,6 +378,7 @@ class Committee:
         self,
         task: str,
         context: str = "",
+        mode: str = "full",
     ) -> CommitteeVerdict:
         """
         Full deliberation cycle: plan → critique → resolve.
@@ -394,6 +395,14 @@ class Committee:
                 planner_output=planner_raw,
             )
 
+        if mode == "plan_only":
+            return CommitteeVerdict(
+                approved=True,
+                plan=plan,
+                planner_output=planner_raw,
+                rejection_reason="plan_only mode — critique skipped",
+            )
+
         # Phase 2: Critic reviews
         verdict, reason, risks, blockers, critic_raw = await self._critic.critique(plan, task)
 
@@ -404,6 +413,15 @@ class Committee:
                 planner_output=planner_raw,
                 critic_output=critic_raw,
                 rejection_reason=f"Critic rejected: {reason}. Blockers: {'; '.join(blockers)}",
+            )
+            
+        if mode == "critique_only":
+            return CommitteeVerdict(
+                approved=True,
+                plan=plan,
+                planner_output=planner_raw,
+                critic_output=critic_raw,
+                rejection_reason="critique_only mode — resolver skipped",
             )
 
         # Phase 3: Resolver synthesises
