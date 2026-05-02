@@ -44,7 +44,7 @@ def logs_list(
     
     settings = SumoSettings(workspace=workspace)
     logger = AuditLogger(settings)
-    sessions = logger.list_sessions(limit=limit)
+    sessions = logger.list(limit=limit)
     
     if not sessions:
         console.print("[yellow]No audit logs found.[/yellow]")
@@ -84,11 +84,11 @@ def logs_show(
     
     settings = SumoSettings(workspace=workspace)
     logger = AuditLogger(settings)
-    session = logger.get_session(session_id)
+    session = logger.show(session_id)
     
     if not session:
         # Try truncated ID
-        sessions = logger.list_sessions(limit=100)
+        sessions = logger.list(limit=100)
         session = next((s for s in sessions if s["session_id"].startswith(session_id)), None)
         
     if not session:

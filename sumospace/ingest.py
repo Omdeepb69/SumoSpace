@@ -573,6 +573,14 @@ class UniversalIngestor:
         """
         Ingest a single file, skipping if unchanged since last ingest.
         Set force=True to re-ingest regardless of modification.
+
+        Note:
+            Use this method when monitoring individual file changes or implementing
+            real-time watch events. For bulk operations, `ingest_directory()` is much faster.
+
+        Warning:
+            If you change the chunk size or text splitting logic, you MUST pass `force=True`
+            or the old chunks will remain cached in the vector store.
         """
         import time
         path = Path(path)
@@ -639,6 +647,15 @@ class UniversalIngestor:
             extensions:       Whitelist of file extensions (e.g., {".py", ".md"}).
             exclude_patterns: Patterns to exclude (e.g., ["__pycache__", ".git"]).
             force:            Re-ingest all files regardless of modification.
+
+        Note:
+            This is the primary method for initializing the RAG store for a new workspace.
+            It automatically skips binary files, large media, and standard ignore directories.
+
+        Warning:
+            Do not run this method on `.` (root) without configuring `exclude_patterns` 
+            if you have massive data folders (`node_modules`, `venv`, etc.). While defaults 
+            exist, large unknown folders can silently consume your token quota and memory.
         """
         exclude_patterns = exclude_patterns or [
             "__pycache__", ".git", "node_modules", ".venv", "venv",

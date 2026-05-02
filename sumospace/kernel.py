@@ -351,14 +351,23 @@ class SumoKernel:
 
     async def run(self, task: str, session_id: str | None = None) -> ExecutionTrace:
         """
-        Execute a task end-to-end.
+        Execute a task end-to-end synchronously.
 
         Args:
             task:       Natural language task description.
             session_id: Optional session identifier for memory scoping.
 
         Returns:
-            ExecutionTrace with full audit trail.
+            ExecutionTrace with full audit trail and final answer.
+
+        Note:
+            Prefer `stream_run()` over this method in any UI context. `run()` blocks
+            until full completion, meaning the user will see no feedback during
+            potentially long-running tool executions or committee deliberation.
+
+        Warning:
+            If you catch `ConsensusFailedError` or `ExecutionHaltedError`, the returned 
+            trace will have `success=False` and the error attached to `trace.error`.
         """
         if not self._initialized:
             await self.boot()
@@ -534,8 +543,25 @@ class SumoKernel:
         self, task: str, session_id: str | None = None
     ) -> AsyncIterator[StepTrace | SynthesisChunk | ExecutionTrace]:
         """
-        Stream execution step-by-step.
-        Yields StepTrace after each tool executes, then final ExecutionTrace.
+        Stream execution step-by-step incrementally.
+
+        Args:
+            task:       Natural language task description.
+            session_id: Optional session identifier for memory scoping.
+
+        Yields:
+            `StepTrace` as each tool finishes executing.
+            `SynthesisChunk` for partial output of the final answer generation.
+            `ExecutionTrace` exactly once at the end.
+
+        Note:
+            Prefer this over `run()` in any UI context. `run()` blocks until
+            full completion; `stream_run()` lets you show progress incrementally.
+
+        Warning:
+            The final yielded object is `ExecutionTrace`, not `StepTrace`.
+            Always check `isinstance(event, ExecutionTrace)` to detect completion
+            and retrieve the overall `success` status and `final_answer`.
         """
         if not self._initialized:
             await self.boot()

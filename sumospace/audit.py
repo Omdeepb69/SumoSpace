@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
+import builtins
 from filelock import FileLock
 
 if TYPE_CHECKING:
@@ -112,8 +113,18 @@ class AuditLogger:
         except Exception:
             pass
 
-    def list_sessions(self, limit: int = 20) -> list[dict]:
-        """List recent sessions across all log files."""
+    def list(self, limit: int = 20) -> builtins.list[dict]:
+        """
+        List recent execution sessions from all log files.
+
+        Note:
+            This scans the `.jsonl` files in reverse chronological order. Use it 
+            for displaying a history dashboard.
+
+        Warning:
+            The returned dictionaries contain full trace data which can be memory 
+            intensive if `limit` is set very high.
+        """
         sessions = []
         log_files = sorted(self.log_dir.glob("audit_*.jsonl"), reverse=True)
         for log_file in log_files:
@@ -130,8 +141,18 @@ class AuditLogger:
                 continue
         return sessions
 
-    def get_session(self, session_id: str) -> Optional[dict]:
-        """Find a specific session by ID."""
+    def show(self, session_id: str) -> Optional[dict]:
+        """
+        Retrieve the full trace for a specific session.
+
+        Note:
+            This scans the log files to find the exact session. Use this when you need
+            to inspect the exact steps, tool outputs, and LLM reasoning.
+
+        Warning:
+            Returns `None` if the session ID does not exist. Always check for `None`
+            before attempting to parse the result.
+        """
         log_files = sorted(self.log_dir.glob("audit_*.jsonl"), reverse=True)
         for log_file in log_files:
             try:
@@ -144,8 +165,18 @@ class AuditLogger:
                 continue
         return None
 
-    def search(self, query: str, limit: int = 10) -> list[dict]:
-        """Search sessions for a substring in the task."""
+    def search(self, query: str, limit: int = 10) -> builtins.list[dict]:
+        """
+        Search sessions for a substring in the task.
+
+        Note:
+            This is currently a linear substring search over the log files. It is useful 
+            for debugging (e.g. `audit.search("database")`).
+
+        Warning:
+            Because it uses substring matching, it is not semantic. Searching for
+            "DB" will not match tasks that only say "database".
+        """
         results = []
         log_files = sorted(self.log_dir.glob("audit_*.jsonl"), reverse=True)
         for log_file in log_files:
@@ -164,7 +195,13 @@ class AuditLogger:
         return results
 
     def stats(self) -> dict:
-        """Get aggregated stats from the index."""
+        """
+        Get aggregated stats from the index.
+
+        Note:
+            These statistics are maintained incrementally in `stats_index.json`. 
+            Calling `stats()` is fast and perfectly safe to use in a high-frequency polling endpoint.
+        """
         index_file = self.log_dir / "stats_index.json"
         if not index_file.exists():
             return {}
@@ -175,8 +212,14 @@ class AuditLogger:
             return {}
 
     def export(self, session_id: str) -> Optional[str]:
-        """Export session to a Markdown report."""
-        session = self.get_session(session_id)
+        """
+        Export session to a Markdown report.
+
+        Note:
+            Useful for downloading logs via a web API or saving a specific
+            run to a bug report attachment.
+        """
+        session = self.show(session_id)
         if not session:
             return None
         

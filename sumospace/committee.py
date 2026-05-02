@@ -163,7 +163,7 @@ class PlannerAgent(BaseAgent):
             raw = await self._provider.complete(
                 user=prompt,
                 system=system,
-                temperature=0.1 + (attempt * 0.1),
+                temperature=min(0.1 + (attempt * 0.1), 0.4),
                 max_tokens=2048,
             )
             last_raw = raw
@@ -236,7 +236,7 @@ class CriticAgent(BaseAgent):
             raw = await self._provider.complete(
                 user=f"Review this execution plan:\n{plan_json}",
                 system=system,
-                temperature=0.1 + (attempt * 0.1),
+                temperature=min(0.1 + (attempt * 0.1), 0.4),
                 max_tokens=1024,
             )
             last_raw = raw
@@ -298,7 +298,7 @@ class ResolverAgent(BaseAgent):
             raw = await self._provider.complete(
                 user=prompt,
                 system=system_prompt,
-                temperature=0.1 + (attempt * 0.1),
+                temperature=min(0.1 + (attempt * 0.1), 0.4),
                 max_tokens=2048,
             )
 
