@@ -43,12 +43,47 @@ class ToolResult:
 
 # ─── Base Tool ───────────────────────────────────────────────────────────────
 
+from typing import ClassVar
+
 class BaseTool:
     name: str = "base"
     description: str = ""
+    version: str = "1.0.0"
+    author: str = ""
+
+    # JSON Schema for parameters — enables validation + LLM-readable docs
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    # Tool tags for filtering and routing
+    tags: ClassVar[list[str]] = []
 
     async def run(self, **kwargs) -> ToolResult:
         raise NotImplementedError
+
+    def validate_params(self, kwargs: dict) -> tuple[bool, str]:
+        """Validate kwargs against schema. Returns (valid, error_message)."""
+        try:
+            import jsonschema
+            jsonschema.validate(kwargs, self.schema)
+            return True, ""
+        except ImportError:
+            return True, ""  # Skip if jsonschema not installed
+        except jsonschema.ValidationError as e:
+            return False, str(e.message)
+
+    def describe(self) -> dict:
+        """Full tool description for LLM prompt construction."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "version": self.version,
+            "schema": self.schema,
+            "tags": self.tags,
+        }
 
 
 # ─── File System Tools ────────────────────────────────────────────────────────
@@ -531,6 +566,29 @@ class ToolRegistry:
         self._tools: dict[str, BaseTool] = {}
         self._workspace = workspace
         self._register_defaults()
+        self._discover_plugins()
+
+    def _discover_plugins(self):
+        """Auto-load tools registered via entry points."""
+        try:
+            from importlib.metadata import entry_points
+            # Handle both Python 3.8+ and 3.10+ entry_points API
+            eps = entry_points()
+            if hasattr(eps, "select"):
+                eps = eps.select(group="sumospace.tools")
+            else:
+                eps = eps.get("sumospace.tools", [])
+                
+            for ep in eps:
+                try:
+                    tool_cls = ep.load()
+                    self.register(tool_cls())
+                except Exception as e:
+                    from rich.console import Console
+                    console = Console()
+                    console.print(f"[yellow]Plugin load failed: {ep.name}: {e}[/yellow]")
+        except Exception:
+            pass
 
     def _register_defaults(self):
         ws = self._workspace
@@ -554,6 +612,11 @@ class ToolRegistry:
     def list_tools(self) -> list[dict[str, str]]:
         return [{"name": t.name, "description": t.description} for t in self._tools.values()]
 
+    def execute(self, name: str, **kwargs) -> Any:
+        # Compatibility wrapper for async code calling execute.
+        # It's an async function actually.
+        pass
+
     async def execute(self, name: str, **kwargs) -> ToolResult:
         tool = self.get(name)
         if not tool:
@@ -561,4 +624,13 @@ class ToolRegistry:
                 tool=name, success=False, output="",
                 error=f"Tool '{name}' not found. Available: {list(self._tools.keys())}",
             )
+            
+        valid, error_msg = tool.validate_params(kwargs)
+        if not valid:
+            return ToolResult(
+                tool=name, success=False, output="",
+                error=f"Invalid parameters for '{name}': {error_msg}",
+                metadata={"validation_error": True},
+            )
+
         return await tool.run(**kwargs)

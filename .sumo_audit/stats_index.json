@@ -1,0 +1,13 @@
+{
+  "total_sessions": 1,
+  "successful_sessions": 0,
+  "failed_sessions": 1,
+  "total_duration_ms": 319522.29308299866,
+  "tool_usage": {},
+  "intent_usage": {
+    "REFACTOR": 1
+  },
+  "failure_reasons": {
+    "Unknown error": 1
+  }
+}

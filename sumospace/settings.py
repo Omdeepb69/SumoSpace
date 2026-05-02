@@ -1,7 +1,8 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sumospace.kernel import KernelConfig
 
+if TYPE_CHECKING:
+    from sumospace.kernel import KernelConfig
 class SumoSettings(BaseSettings):
     """
     Centralized configuration layer for SumoSpace.
@@ -54,6 +55,10 @@ class SumoSettings(BaseSettings):
     """
     hooks_module: Optional[str] = None  # Path or dotted module to load hooks from
 
+    # ── Observability ──────────────────────────────────────────────────────────
+    telemetry_enabled: bool = False
+    telemetry_endpoint: str = "http://localhost:4317"
+
     @classmethod
     def from_file(cls, path: str) -> "SumoSettings":
         """Load settings explicitly from a specific file."""
@@ -65,6 +70,7 @@ class SumoSettings(BaseSettings):
         Deprecated: Pass SumoSettings to SumoKernel directly instead.
         Will be removed in v1.0.
         """
+        from sumospace.kernel import KernelConfig
         return KernelConfig(
             provider=self.provider,
             model=self.model,

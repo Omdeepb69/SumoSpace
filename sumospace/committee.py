@@ -134,10 +134,19 @@ Output ONLY JSON. No markdown. No explanation outside the JSON."""
 
 # ─── Individual Agents ────────────────────────────────────────────────────────
 
-class PlannerAgent:
+class BaseAgent:
+    """Override this to add custom committee agents."""
+    role: str = "base"
+
     def __init__(self, provider, templates=None):
         self._provider = provider
         self._templates = templates
+
+    async def run(self, task: str, context: str, **kwargs) -> dict:
+        raise NotImplementedError
+
+class PlannerAgent(BaseAgent):
+    role = "planner"
 
     async def plan(self, task: str, context: str = "") -> tuple[ExecutionPlan, str]:
         prompt = f"Task: {task}"
@@ -149,20 +158,24 @@ class PlannerAgent:
             else PLANNER_SYSTEM
         )
 
-        raw = await self._provider.complete(
-            user=prompt,
-            system=system,
-            temperature=0.1,
-            max_tokens=2048,
-        )
-
-        plan, raw_clean = self._parse_plan(task, raw)
-        return plan, raw_clean
+        last_raw = ""
+        for attempt in range(3):
+            raw = await self._provider.complete(
+                user=prompt,
+                system=system,
+                temperature=0.1 + (attempt * 0.1),
+                max_tokens=2048,
+            )
+            last_raw = raw
+            plan, raw_clean = self._parse_plan(task, raw)
+            if plan.steps or attempt == 2:
+                return plan, raw_clean
+        
+        return self._parse_plan(task, last_raw)
 
     def _parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
-        # Extract the first JSON block found in the text
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        raw_clean = match.group(0) if match else raw.strip()
+        # Strip markdown fences and noise
+        raw_clean = _clean_json(raw)
         try:
             data = json.loads(raw_clean)
             steps = [
@@ -190,17 +203,15 @@ class PlannerAgent:
             ), raw_clean
 
 
-class CriticAgent:
-    def __init__(self, provider, templates=None):
-        self._provider = provider
-        self._templates = templates
+class CriticAgent(BaseAgent):
+    role = "critic"
 
     async def critique(
         self,
         plan: ExecutionPlan,
         task: str,
     ) -> tuple[str, str, list[str], list[str], str]:
-        """Returns: (verdict, reason, risks, blockers)"""
+        """Returns: (verdict, reason, risks, blockers, raw)"""
         plan_json = json.dumps({
             "task": task,
             "steps": [
@@ -220,31 +231,31 @@ class CriticAgent:
             else CRITIC_SYSTEM
         )
 
-        raw = await self._provider.complete(
-            user=f"Review this execution plan:\n{plan_json}",
-            system=system,
-            temperature=0.1,
-            max_tokens=1024,
-        )
+        last_raw = ""
+        for attempt in range(3):
+            raw = await self._provider.complete(
+                user=f"Review this execution plan:\n{plan_json}",
+                system=system,
+                temperature=0.1 + (attempt * 0.1),
+                max_tokens=1024,
+            )
+            last_raw = raw
+            raw_clean = _clean_json(raw)
+            try:
+                data = json.loads(raw_clean)
+                verdict = data.get("verdict", "approve")
+                reason = data.get("verdict_reason", "")
+                risks = data.get("risks", [])
+                blockers = data.get("blockers", [])
+                return verdict, reason, risks, blockers, raw_clean
+            except Exception:
+                if attempt == 2:
+                    return "approve", "Critique parsing failed", [], [], last_raw
+                continue
 
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        raw_clean = match.group(0) if match else raw.strip()
-        try:
-            data = json.loads(raw_clean)
-            verdict = data.get("verdict", "approve")
-            reason = data.get("verdict_reason", "")
-            risks = data.get("risks", [])
-            blockers = data.get("blockers", [])
-        except Exception:
-            verdict, reason, risks, blockers = "approve", "Critique parsing failed", [], []
 
-        return verdict, reason, risks, blockers, raw_clean
-
-
-class ResolverAgent:
-    def __init__(self, provider, templates=None):
-        self._provider = provider
-        self._templates = templates
+class ResolverAgent(BaseAgent):
+    role = "resolver"
 
     async def resolve(
         self,
@@ -278,16 +289,16 @@ class ResolverAgent:
             self._templates.raw("resolver_prompt") if self._templates
             else RESOLVER_SYSTEM
         )
-        for attempt in range(2):
-            if attempt == 1:
-                system_prompt = base_system + "\nCRITICAL: Your previous response was not valid JSON. \nOutput ONLY a raw JSON object. No explanation. No markdown. No backticks.\nStart your response with { and end with }."
+        for attempt in range(3):
+            if attempt > 0:
+                system_prompt = base_system + f"\nCRITICAL: Your previous response was not valid JSON. (Attempt {attempt+1}/3)\nOutput ONLY a raw JSON object. No explanation. No markdown. No backticks.\nStart your response with {{ and end with }}."
             else:
                 system_prompt = base_system
 
             raw = await self._provider.complete(
                 user=prompt,
                 system=system_prompt,
-                temperature=0.1,
+                temperature=0.1 + (attempt * 0.1),
                 max_tokens=2048,
             )
 
@@ -321,7 +332,7 @@ class ResolverAgent:
                 )
                 return plan, True, plan.approval_notes, raw_clean
             except Exception as e:
-                if attempt == 0:
+                if attempt < 2:
                     continue
                 # A parse failure on a flagged plan is NOT approval.
                 return original_plan, False, "", (
@@ -345,10 +356,22 @@ class Committee:
             # Execute verdict.plan
     """
 
-    def __init__(self, provider, planning_provider=None, require_consensus: bool = True, templates=None):
-        self._planner = PlannerAgent(planning_provider or provider, templates=templates)
-        self._critic = CriticAgent(planning_provider or provider, templates=templates)
-        self._resolver = ResolverAgent(planning_provider or provider, templates=templates)
+    def __init__(
+        self,
+        provider,
+        planning_provider=None,
+        require_consensus: bool = True,
+        templates=None,
+        custom_agents: list[BaseAgent] | None = None,
+        planner: PlannerAgent | None = None,
+        critic: CriticAgent | None = None,
+        resolver: ResolverAgent | None = None,
+    ):
+        provider_to_use = planning_provider or provider
+        self._planner = planner or PlannerAgent(provider_to_use, templates=templates)
+        self._critic = critic or CriticAgent(provider_to_use, templates=templates)
+        self._resolver = resolver or ResolverAgent(provider_to_use, templates=templates)
+        self._custom_agents = custom_agents or []
         self.require_consensus = require_consensus
 
     async def deliberate(

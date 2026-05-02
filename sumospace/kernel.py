@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import time
 import uuid
+import hashlib
+from pathlib import Path
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, TYPE_CHECKING
@@ -36,18 +38,26 @@ if TYPE_CHECKING:
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from typing import Any, AsyncIterator
 
+from sumospace.audit import AuditLogger
+from sumospace.cache import PlanCache
 from sumospace.classifier import ClassificationResult, Intent, SumoClassifier
+from sumospace.telemetry import SumoTelemetry
 from sumospace.committee import Committee, CommitteeVerdict, ExecutionPlan
 from sumospace.exceptions import (
     ConsensusFailedError,
     ExecutionHaltedError,
     KernelBootError,
 )
+from sumospace.hooks import HookRegistry
 from sumospace.ingest import UniversalIngestor
 from sumospace.memory import MemoryManager
 from sumospace.providers import ProviderRouter
 from sumospace.rag import RAGPipeline
+from sumospace.scope import ScopeManager
+from sumospace.settings import SumoSettings
+from sumospace.templates import TemplateManager
 from sumospace.tools import ToolRegistry, ToolResult
 
 console = Console()
@@ -114,6 +124,10 @@ class StepTrace:
     description: str
     result: ToolResult
     duration_ms: float
+
+@dataclass
+class SynthesisChunk:
+    delta: str
 
 
 @dataclass
@@ -196,6 +210,16 @@ class SumoKernel:
 
         # Auto-load hooks from workspace if enabled
         self._auto_load_hooks()
+
+        from sumospace.cache import PlanCache
+        self._cache = PlanCache(
+            cache_dir=str(Path(self.settings.workspace) / ".sumo_cache")
+        )
+
+        self.telemetry = SumoTelemetry(
+            enabled=self.settings.telemetry_enabled,
+            endpoint=self.settings.telemetry_endpoint
+        )
 
     async def boot(self):
         """Initialise all subsystems. Called automatically by async context manager."""
@@ -340,16 +364,21 @@ class SumoKernel:
             await self.boot()
 
         session_id = session_id or uuid.uuid4().hex[:12]
+        task_hash = hashlib.sha256(task.encode()).hexdigest()[:8]
         start = time.monotonic()
         verdict = None
 
-        trace = ExecutionTrace(
-            task=task,
-            session_id=session_id,
-            intent=Intent.GENERAL_QA,
-            classification=None,
-            plan=None,
-        )
+        async with self.telemetry.async_span(
+            "sumospace.kernel.run", 
+            attributes={"task": task, "session_id": session_id, "task_hash": task_hash}
+        ):
+            trace = ExecutionTrace(
+                task=task,
+                session_id=session_id,
+                intent=Intent.GENERAL_QA,
+                classification=None,
+                plan=None,
+            )
 
         try:
             # Step 1: Classify
@@ -361,7 +390,8 @@ class SumoKernel:
             recent_ctx = {
                 "recent_messages": [m["content"] for m in self._memory.recent(5)],
             }
-            classification = await self._classifier.classify(task, context=recent_ctx)
+            async with self.telemetry.async_span("sumospace.classify", attributes={"task": task}):
+                classification = await self._classifier.classify(task, context=recent_ctx)
             trace.intent = classification.intent
             trace.classification = classification
 
@@ -374,53 +404,56 @@ class SumoKernel:
             # Step 2: RAG retrieval (if needed)
             rag_context = ""
             if classification.needs_retrieval:
-                try:
-                    rag_result = await self._rag.retrieve(task)
-                    if rag_result.chunks:
-                        rag_context = rag_result.context
-                        trace.rag_context = rag_context
+                async with self.telemetry.async_span("sumospace.rag.retrieve", attributes={"task": task}):
+                    try:
+                        rag_result = await self._rag.retrieve(task)
+                        if rag_result.chunks:
+                            rag_context = rag_result.context
+                            trace.rag_context = rag_context
+                            if self.settings.verbose:
+                                console.print(
+                                    f"[dim]Retrieved {len(rag_result.chunks)} chunks "
+                                    f"(reranked: {rag_result.used_reranker})[/dim]"
+                                )
+                    except Exception as e:
                         if self.settings.verbose:
-                            console.print(
-                                f"[dim]Retrieved {len(rag_result.chunks)} chunks "
-                                f"(reranked: {rag_result.used_reranker})[/dim]"
-                            )
-                except Exception as e:
-                    if self.settings.verbose:
-                        console.print(f"[yellow]RAG skipped: {e}[/yellow]")
+                            console.print(f"[yellow]RAG skipped: {e}[/yellow]")
 
             # Step 3: Web search (if needed)
             web_context = ""
             if classification.needs_web:
-                web_result = await self._tools.execute("web_search", query=task)
+                async with self.telemetry.async_span("sumospace.web_search", attributes={"task": task}):
+                    web_result = await self._tools.execute("web_search", query=task)
                 if web_result.success:
                     web_context = web_result.output
 
             # Step 4: Build full context
-            context_parts = []
-            
-            # Inject available tools
-            tools_list = self._tools.list_tools()
-            tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in tools_list])
-            context_parts.append(f"=== AVAILABLE TOOLS ===\n{tools_str}")
-            
-            # Inject session context
-            session_info = f"user_id: {self.settings.user_id}\nsession_id: {self.settings.session_id}"
-            context_parts.append(f"=== SESSION CONTEXT ===\n{session_info}")
-
-            if rag_context:
-                context_parts.append(f"=== CODEBASE CONTEXT ===\n{rag_context}")
-            if web_context:
-                context_parts.append(f"=== WEB SEARCH RESULTS ===\n{web_context}")
-            if self._memory.recent(5):
-                mem_str = self._memory.context_string(5)
-                context_parts.append(f"=== RECENT MEMORY ===\n{mem_str}")
-            full_context = "\n\n".join(context_parts)
+            full_context = self._build_full_context(
+                task=task,
+                rag_context=rag_context,
+                web_context=web_context,
+                memory_str=self._memory.context_string(5) if self._memory.recent(1) else ""
+            )
 
             # Step 5: Committee deliberation
-            if self.settings.verbose:
-                console.print("[dim]Committee deliberating...[/dim]")
+            cached_plan = self._cache.get(task, full_context)
+            if cached_plan:
+                if self.settings.verbose:
+                    console.print("[dim]Using cached execution plan[/dim]")
+                verdict = CommitteeVerdict(
+                    approved=True, plan=cached_plan, rejection_reason="", 
+                    planner_output="CACHED", critic_output="CACHED", resolver_output="CACHED"
+                )
+            else:
+                if self.settings.verbose:
+                    console.print("[dim]Committee deliberating...[/dim]")
 
-            verdict = await self._committee.deliberate(task, context=full_context)
+                async with self.telemetry.async_span("sumospace.committee.deliberate", attributes={"task": task}):
+                    verdict = await self._committee.deliberate(task, context=full_context)
+                
+                if verdict.approved:
+                    self._cache.set(task, full_context, verdict.plan)
+                    
             trace.plan = verdict.plan
 
             if not verdict.approved:
@@ -441,11 +474,15 @@ class SumoKernel:
                 trace.final_answer = self._format_dry_run(verdict)
                 trace.success = True
             else:
-                await self._execute_plan(verdict.plan, trace)
+                async with self.telemetry.async_span("sumospace.execute", attributes={"steps": len(verdict.plan.steps)}):
+                    await self._execute_plan(verdict.plan, trace)
 
             # Step 7: Synthesise final answer
             if not trace.final_answer:
-                trace.final_answer = await self._synthesise(task, trace, full_context)
+                answer_parts = []
+                async for chunk in self._synthesise(task, trace, full_context):
+                    answer_parts.append(chunk)
+                trace.final_answer = "".join(answer_parts)
 
             # Step 8: Persist to memory
             await self._memory.add("user", task)
@@ -493,6 +530,153 @@ class SumoKernel:
 
         return trace
 
+    async def stream_run(
+        self, task: str, session_id: str | None = None
+    ) -> AsyncIterator[StepTrace | SynthesisChunk | ExecutionTrace]:
+        """
+        Stream execution step-by-step.
+        Yields StepTrace after each tool executes, then final ExecutionTrace.
+        """
+        if not self._initialized:
+            await self.boot()
+
+        session_id = session_id or uuid.uuid4().hex[:12]
+        task_hash = hashlib.sha256(task.encode()).hexdigest()[:8]
+        start = time.monotonic()
+        
+        async with self.telemetry.async_span(
+            "sumospace.kernel.stream_run", 
+            attributes={"task": task, "session_id": session_id, "task_hash": task_hash}
+        ):
+            trace = ExecutionTrace(
+                task=task,
+                session_id=session_id,
+                intent=Intent.GENERAL_QA,
+                classification=None,
+                plan=None,
+            )
+
+        try:
+            await self.hooks.trigger("on_task_start", task, session_id)
+
+            recent_ctx = {
+                "recent_messages": [m["content"] for m in self._memory.recent(5)],
+            }
+            async with self.telemetry.async_span("sumospace.classify", attributes={"task": task}):
+                classification = await self._classifier.classify(task, context=recent_ctx)
+            trace.intent = classification.intent
+            trace.classification = classification
+
+            rag_context = ""
+            if classification.needs_retrieval:
+                async with self.telemetry.async_span("sumospace.rag.retrieve", attributes={"task": task}):
+                    try:
+                        rag_result = await self._rag.retrieve(task)
+                        if rag_result.chunks:
+                            rag_context = rag_result.context
+                            trace.rag_context = rag_context
+                    except Exception:
+                        pass
+
+            web_context = ""
+            if classification.needs_web:
+                async with self.telemetry.async_span("sumospace.web_search", attributes={"task": task}):
+                    web_result = await self._tools.execute("web_search", query=task)
+                if web_result.success:
+                    web_context = web_result.output
+
+            # Build full context
+            full_context = self._build_full_context(
+                task=task,
+                rag_context=rag_context,
+                web_context=web_context,
+                memory_str=self._memory.context_string(5) if self._memory.recent(1) else ""
+            )
+
+            cached_plan = self._cache.get(task, full_context)
+            if cached_plan:
+                verdict = CommitteeVerdict(
+                    approved=True, plan=cached_plan, rejection_reason="", 
+                    planner_output="CACHED", critic_output="CACHED", resolver_output="CACHED"
+                )
+            else:
+                async with self.telemetry.async_span("sumospace.committee.deliberate", attributes={"task": task}):
+                    verdict = await self._committee.deliberate(task, context=full_context)
+                if verdict.approved:
+                    self._cache.set(task, full_context, verdict.plan)
+
+            trace.plan = verdict.plan
+
+            if not verdict.approved:
+                await self.hooks.trigger("on_plan_rejected", verdict.rejection_reason, verdict)
+                trace.error = verdict.rejection_reason
+                trace.success = False
+                trace.final_answer = f"Task halted: Committee rejected plan: {verdict.rejection_reason}"
+                trace.duration_ms = (time.monotonic() - start) * 1000
+                if self._audit_logger:
+                    self._audit_logger.log(trace, verdict)
+                await self.hooks.trigger("on_task_failed", trace, trace.error)
+                yield trace
+                return
+
+            await self.hooks.trigger("on_plan_approved", verdict.plan, verdict)
+
+            if self.settings.dry_run:
+                trace.final_answer = self._format_dry_run(verdict)
+                trace.success = True
+            else:
+                for step in verdict.plan.steps:
+                    await self.hooks.trigger("on_step_start", step)
+                    step_start = time.monotonic()
+                    result = await self._tools.execute(step.tool, **step.parameters)
+                    step_ms = (time.monotonic() - step_start) * 1000
+
+                    step_trace = StepTrace(
+                        step_number=step.step_number,
+                        tool=step.tool,
+                        description=step.description,
+                        result=result,
+                        duration_ms=step_ms,
+                    )
+                    trace.step_traces.append(step_trace)
+                    
+                    if result.success:
+                        await self.hooks.trigger("on_step_complete", step_trace)
+                    else:
+                        await self.hooks.trigger("on_step_failed", step_trace)
+
+                    yield step_trace
+
+                    if not result.success and step.critical:
+                        raise ExecutionHaltedError(f"Step {step.step_number} ({step.tool}) failed")
+
+            if not trace.final_answer:
+                answer_parts = []
+                async for chunk in self._synthesise(task, trace, full_context):
+                    answer_parts.append(chunk)
+                    yield SynthesisChunk(delta=chunk)
+                trace.final_answer = "".join(answer_parts)
+
+            await self._memory.add("user", task)
+            await self._memory.add("assistant", trace.final_answer)
+            trace.success = True
+
+        except Exception as e:
+            trace.error = str(e)
+            trace.success = False
+            trace.final_answer = f"Error: {e}"
+
+        trace.duration_ms = (time.monotonic() - start) * 1000
+        if self._audit_logger:
+            self._audit_logger.log(trace, locals().get("verdict"))
+
+        if trace.success:
+            await self.hooks.trigger("on_task_complete", trace)
+        else:
+            await self.hooks.trigger("on_task_failed", trace, trace.error)
+
+        yield trace
+
     # ── Plan Execution ───────────────────────────────────────────────────────
 
     async def _execute_plan(self, plan: ExecutionPlan, trace: ExecutionTrace):
@@ -507,7 +691,8 @@ class SumoKernel:
             await self.hooks.trigger("on_step_start", step)
 
             step_start = time.monotonic()
-            result = await self._tools.execute(step.tool, **step.parameters)
+            async with self.telemetry.async_span(f"sumospace.tool.{step.tool}", attributes={"description": step.description}):
+                result = await self._tools.execute(step.tool, **step.parameters)
             step_ms = (time.monotonic() - step_start) * 1000
 
             step_trace = StepTrace(
@@ -543,7 +728,7 @@ class SumoKernel:
         task: str,
         trace: ExecutionTrace,
         context: str,
-    ) -> str:
+    ) -> AsyncIterator[str]:
         """Generate a natural language summary of what was done."""
         outputs = "\n\n".join([
             f"Step {t.step_number} ({t.tool}): {t.result.output[:500]}"
@@ -561,13 +746,63 @@ class SumoKernel:
             user += f"\n\nContext used:\n{context[:1000]}"
 
         try:
-            return await self._provider.complete(
-                user=user, system=system, temperature=0.1, max_tokens=1024
-            )
+            async with self.telemetry.async_span("sumospace.synthesise"):
+                async for chunk in self._provider.stream(user=user, system=system, temperature=0.1):
+                    yield chunk
         except Exception:
-            return outputs or "Task completed."
+            yield outputs or "Task completed."
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def _build_full_context(
+        self, 
+        task: str, 
+        rag_context: str = "", 
+        web_context: str = "", 
+        memory_str: str = "",
+        max_tokens: int = 4096
+    ) -> str:
+        """
+        Builds a comprehensive context string for the LLM, 
+        applying priority-based truncation to fit within max_tokens.
+        """
+        from sumospace.utils.tokens import truncate_by_tokens
+        
+        # 1. Budgeting (fixed ratios)
+        # Tools & Session: ~10% (Static)
+        # Task: 15%
+        # Memory: 20%
+        # Web: 15%
+        # RAG: 40% (Lowest priority, truncated first)
+        
+        mem_budget = int(max_tokens * 0.20)
+        web_budget = int(max_tokens * 0.15)
+        rag_budget = int(max_tokens * 0.40)
+        
+        # Tools & Session Info
+        tools_list = self._tools.list_tools()
+        tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in tools_list])
+        session_info = f"user_id: {self.settings.user_id}\nsession_id: {self.settings.session_id}"
+        
+        # Truncation logic (Priority: Task > Memory > Web > RAG)
+        truncated_rag = truncate_by_tokens(rag_context, rag_budget) if rag_context else ""
+        truncated_web = truncate_by_tokens(web_context, web_budget) if web_context else ""
+        truncated_mem = truncate_by_tokens(memory_str, mem_budget) if memory_str else ""
+        
+        parts = [
+            f"=== AVAILABLE TOOLS ===\n{tools_str}",
+            f"=== SESSION CONTEXT ===\n{session_info}",
+            f"=== TASK ===\n{task}",
+        ]
+        
+        if truncated_mem:
+            parts.append(f"=== RECENT MEMORY ===\n{truncated_mem}")
+        if truncated_web:
+            parts.append(f"=== WEB SEARCH RESULTS ===\n{truncated_web}")
+        if truncated_rag:
+            parts.append(f"=== CODEBASE CONTEXT ===\n{truncated_rag}")
+            
+        return "\n\n".join(parts)
 
     def _format_dry_run(self, verdict: CommitteeVerdict) -> str:
         lines = [

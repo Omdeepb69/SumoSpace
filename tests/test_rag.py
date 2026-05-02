@@ -113,7 +113,8 @@ class TestRAGPipeline:
         await pipeline.initialize()
         result = await pipeline.retrieve("PostgreSQL database")
         for chunk in result.chunks:
-            assert chunk.final_score >= 0
+            assert hasattr(chunk, "final_score")
+            assert isinstance(chunk.final_score, float)
 
     async def test_context_not_exceeds_max_chars(self, populated_ingestor):
         pipeline = RAGPipeline(

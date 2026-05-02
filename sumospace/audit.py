@@ -1,10 +1,13 @@
+from __future__ import annotations
 import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+from filelock import FileLock
 
-from sumospace.kernel import ExecutionTrace
+if TYPE_CHECKING:
+    from sumospace.kernel import ExecutionTrace
 from sumospace.committee import CommitteeVerdict
 from sumospace.settings import SumoSettings
 
@@ -57,6 +60,170 @@ class AuditLogger:
         try:
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(log_entry) + "\n")
-        except Exception as e:
-            # Audit logging should never crash the main process
+            self._update_index(log_entry)
+        except Exception:
             pass
+
+    def _update_index(self, entry: dict):
+        """Incrementally update stats_index.json."""
+        index_file = self.log_dir / "stats_index.json"
+        lock_file = self.log_dir / "stats_index.json.lock"
+        
+        try:
+            with FileLock(lock_file, timeout=5):
+                if index_file.exists():
+                    with open(index_file, "r", encoding="utf-8") as f:
+                        stats = json.load(f)
+                else:
+                    stats = {
+                        "total_sessions": 0,
+                        "successful_sessions": 0,
+                        "failed_sessions": 0,
+                        "total_duration_ms": 0.0,
+                        "tool_usage": {},
+                        "intent_usage": {},
+                        "failure_reasons": {},
+                    }
+
+                stats["total_sessions"] += 1
+                if entry["success"]:
+                    stats["successful_sessions"] += 1
+                else:
+                    stats["failed_sessions"] += 1
+                    reason = entry.get("error") or "Unknown error"
+                    stats["failure_reasons"][reason] = stats["failure_reasons"].get(reason, 0) + 1
+
+                stats["total_duration_ms"] += entry["duration_ms"]
+                
+                intent = entry["intent"]
+                stats["intent_usage"][intent] = stats["intent_usage"].get(intent, 0) + 1
+
+                for step in entry.get("steps", []):
+                    tool = step["tool"]
+                    if tool not in stats["tool_usage"]:
+                        stats["tool_usage"][tool] = {"success": 0, "fail": 0}
+                    if step["success"]:
+                        stats["tool_usage"][tool]["success"] += 1
+                    else:
+                        stats["tool_usage"][tool]["fail"] += 1
+
+                with open(index_file, "w", encoding="utf-8") as f:
+                    json.dump(stats, f, indent=2)
+        except Exception:
+            pass
+
+    def list_sessions(self, limit: int = 20) -> list[dict]:
+        """List recent sessions across all log files."""
+        sessions = []
+        log_files = sorted(self.log_dir.glob("audit_*.jsonl"), reverse=True)
+        for log_file in log_files:
+            if len(sessions) >= limit:
+                break
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    lines = f.readlines()
+                    for line in reversed(lines):
+                        sessions.append(json.loads(line))
+                        if len(sessions) >= limit:
+                            break
+            except Exception:
+                continue
+        return sessions
+
+    def get_session(self, session_id: str) -> Optional[dict]:
+        """Find a specific session by ID."""
+        log_files = sorted(self.log_dir.glob("audit_*.jsonl"), reverse=True)
+        for log_file in log_files:
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        entry = json.loads(line)
+                        if entry["session_id"] == session_id:
+                            return entry
+            except Exception:
+                continue
+        return None
+
+    def search(self, query: str, limit: int = 10) -> list[dict]:
+        """Search sessions for a substring in the task."""
+        results = []
+        log_files = sorted(self.log_dir.glob("audit_*.jsonl"), reverse=True)
+        for log_file in log_files:
+            if len(results) >= limit:
+                break
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    for line in reversed(f.readlines()):
+                        entry = json.loads(line)
+                        if query.lower() in entry["task"].lower():
+                            results.append(entry)
+                            if len(results) >= limit:
+                                break
+            except Exception:
+                continue
+        return results
+
+    def stats(self) -> dict:
+        """Get aggregated stats from the index."""
+        index_file = self.log_dir / "stats_index.json"
+        if not index_file.exists():
+            return {}
+        try:
+            with open(index_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def export(self, session_id: str) -> Optional[str]:
+        """Export session to a Markdown report."""
+        session = self.get_session(session_id)
+        if not session:
+            return None
+        
+        lines = [
+            f"# Session Audit Report: {session_id}",
+            f"- **Task**: {session['task']}",
+            f"- **Timestamp**: {session['timestamp']}",
+            f"- **Success**: {'✅' if session['success'] else '❌'}",
+            f"- **Duration**: {session['duration_ms']:.0f}ms",
+            f"- **Intent**: {session['intent']}",
+            "",
+            "## Committee Verdict",
+        ]
+        
+        verdict = session.get("committee_verdict")
+        if verdict:
+            lines.append(f"- **Approved**: {verdict['approved']}")
+            if not verdict["approved"]:
+                lines.append(f"- **Rejection Reason**: {verdict['rejection_reason']}")
+        else:
+            lines.append("No committee deliberation (likely cached).")
+            
+        lines.extend([
+            "",
+            "## Execution Steps",
+            "| # | Tool | Description | Success | Duration |",
+            "|---|------|-------------|---------|----------|",
+        ])
+        
+        for step in session.get("steps", []):
+            status = "✅" if step["success"] else "❌"
+            lines.append(
+                f"| {step['step_number']} | `{step['tool']}` | {step['description']} | "
+                f"{status} | {step['duration_ms']:.0f}ms |"
+            )
+            
+        lines.extend([
+            "",
+            "## Final Answer",
+            session.get("final_answer", "N/A"),
+        ])
+        
+        if session.get("error"):
+            lines.extend([
+                "",
+                "## Error Details",
+                f"```\n{session['error']}\n```",
+            ])
+            
+        return "\n".join(lines)

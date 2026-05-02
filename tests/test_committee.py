@@ -190,3 +190,21 @@ class TestCommittee:
         verdict = await committee.deliberate("Delete everything")
         assert verdict.approved is False
         assert "reject" in verdict.rejection_reason.lower() or "block" in verdict.rejection_reason.lower()
+
+    async def test_committee_accepts_custom_agents(self, mock_provider):
+        from sumospace.committee import BaseAgent
+        
+        class CustomAgent(BaseAgent):
+            role = "security"
+            async def run(self, task, context, **kwargs):
+                return {"status": "ok"}
+                
+        agent = CustomAgent(mock_provider)
+        committee = Committee(mock_provider, custom_agents=[agent])
+        assert len(committee._custom_agents) == 1
+        assert committee._custom_agents[0].role == "security"
+        
+        # Override standard agents
+        custom_planner = PlannerAgent(mock_provider)
+        committee2 = Committee(mock_provider, planner=custom_planner)
+        assert committee2._planner is custom_planner

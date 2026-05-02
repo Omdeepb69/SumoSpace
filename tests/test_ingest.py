@@ -277,3 +277,34 @@ class TestUniversalIngestor:
         texts = [r["text"] for r in results]
         # Should not have duplicate text entries
         assert len(set(texts)) == len(texts)
+
+    async def test_incremental_ingest_skips_unchanged(self, tmp_path, tmp_chroma):
+        """Verify that ingesting the same file twice skips the second time."""
+        f = tmp_path / "incremental.txt"
+        f.write_text("This content will be hashed.")
+        ingestor = UniversalIngestor(chroma_path=tmp_chroma)
+        await ingestor.initialize()
+        
+        # First ingest
+        r1 = await ingestor.ingest_file(f)
+        assert r1.chunks_created > 0
+        assert r1.loader_used != "skipped (unchanged)"
+        
+        # Second ingest (unchanged)
+        r2 = await ingestor.ingest_file(f)
+        assert r2.chunks_created == 0
+        assert r2.loader_used == "skipped (unchanged)"
+
+    async def test_incremental_ingest_force(self, tmp_path, tmp_chroma):
+        """Verify that force=True re-ingests even if unchanged."""
+        f = tmp_path / "force.txt"
+        f.write_text("Force re-ingest content.")
+        ingestor = UniversalIngestor(chroma_path=tmp_chroma)
+        await ingestor.initialize()
+        
+        await ingestor.ingest_file(f)
+        
+        # Second ingest with force=True
+        r2 = await ingestor.ingest_file(f, force=True)
+        assert r2.chunks_created > 0
+        assert r2.loader_used != "skipped (unchanged)"

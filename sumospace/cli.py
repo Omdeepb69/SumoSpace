@@ -12,8 +12,7 @@ Usage:
     sumo info
 """
 
-from __future__ import annotations
-
+from typing import Optional
 import asyncio
 import sys
 from pathlib import Path
@@ -27,7 +26,199 @@ app = typer.Typer(
     help="SumoSpace — Auto-everything multi-agent execution environment.",
     add_completion=False,
 )
+logs_app = typer.Typer(help="Explore session audit logs.")
+app.add_typer(logs_app, name="logs")
 console = Console()
+
+
+# ─── logs ───────────────────────────────────────────────────────────────────
+
+@logs_app.command("list")
+def logs_list(
+    limit: int = typer.Option(20, "--limit", "-l", help="Number of sessions to show"),
+    workspace: str = typer.Option(".", "--workspace", "-w", help="Workspace root"),
+):
+    """List recent execution sessions."""
+    from sumospace.settings import SumoSettings
+    from sumospace.audit import AuditLogger
+    
+    settings = SumoSettings(workspace=workspace)
+    logger = AuditLogger(settings)
+    sessions = logger.list_sessions(limit=limit)
+    
+    if not sessions:
+        console.print("[yellow]No audit logs found.[/yellow]")
+        return
+        
+    table = Table(title="Recent Sessions")
+    table.add_column("Session ID", style="cyan", no_wrap=True)
+    table.add_column("Task", style="white")
+    table.add_column("Intent", style="dim")
+    table.add_column("Result", justify="center")
+    table.add_column("Duration", justify="right")
+    table.add_column("Timestamp", style="dim")
+    
+    for s in sessions:
+        status = "[green]✓[/green]" if s["success"] else "[red]✗[/red]"
+        task = s["task"][:60] + ("..." if len(s["task"]) > 60 else "")
+        table.add_row(
+            s["session_id"][:12],
+            task,
+            s["intent"],
+            status,
+            f"{s['duration_ms']:.0f}ms",
+            s["timestamp"].split("T")[0],
+        )
+    
+    console.print(table)
+
+@logs_app.command("show")
+def logs_show(
+    session_id: str = typer.Argument(..., help="Session ID to show"),
+    workspace: str = typer.Option(".", "--workspace", "-w", help="Workspace root"),
+):
+    """Show detailed trace for a specific session."""
+    from sumospace.settings import SumoSettings
+    from sumospace.audit import AuditLogger
+    import json
+    
+    settings = SumoSettings(workspace=workspace)
+    logger = AuditLogger(settings)
+    session = logger.get_session(session_id)
+    
+    if not session:
+        # Try truncated ID
+        sessions = logger.list_sessions(limit=100)
+        session = next((s for s in sessions if s["session_id"].startswith(session_id)), None)
+        
+    if not session:
+        console.print(f"[red]Session {session_id} not found.[/red]")
+        return
+        
+    console.print(f"[bold cyan]Session Details: {session['session_id']}[/bold cyan]")
+    console.print(f"[bold]Task:[/bold] {session['task']}")
+    console.print(f"[bold]Result:[/bold] {'[green]Success[/green]' if session['success'] else '[red]Failed[/red]'}")
+    console.print(f"[bold]Intent:[/bold] {session['intent']}")
+    console.print(f"[bold]Duration:[/bold] {session['duration_ms']:.0f}ms")
+    console.print(f"[bold]Timestamp:[/bold] {session['timestamp']}")
+    
+    if session.get("error"):
+        console.print(f"\n[bold red]Error:[/bold red]\n{session['error']}")
+        
+    table = Table(title="\nExecution Steps", box=None)
+    table.add_column("#", style="dim")
+    table.add_column("Tool", style="green")
+    table.add_column("Description")
+    table.add_column("Status", justify="center")
+    table.add_column("Duration", justify="right")
+    
+    for st in session.get("steps", []):
+        status = "[green]✓[/green]" if st["success"] else "[red]✗[/red]"
+        table.add_row(
+            str(st["step_number"]),
+            st["tool"],
+            st["description"],
+            status,
+            f"{st['duration_ms']:.0f}ms",
+        )
+    console.print(table)
+    
+    if session.get("final_answer"):
+        console.print("\n[bold]Final Answer:[/bold]")
+        console.print(session["final_answer"])
+
+@logs_app.command("search")
+def logs_search(
+    query: str = typer.Argument(..., help="Substring to search in tasks"),
+    limit: int = typer.Option(10, "--limit", "-l"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """Search sessions by task content."""
+    from sumospace.settings import SumoSettings
+    from sumospace.audit import AuditLogger
+    
+    settings = SumoSettings(workspace=workspace)
+    logger = AuditLogger(settings)
+    results = logger.search(query, limit=limit)
+    
+    if not results:
+        console.print(f"[yellow]No sessions found matching: {query}[/yellow]")
+        return
+        
+    table = Table(title=f"Search Results: '{query}'")
+    table.add_column("Session ID", style="cyan")
+    table.add_column("Task")
+    table.add_column("Result", justify="center")
+    
+    for r in results:
+        status = "[green]✓[/green]" if r["success"] else "[red]✗[/red]"
+        table.add_row(r["session_id"][:12], r["task"][:80], status)
+    
+    console.print(table)
+
+@logs_app.command("stats")
+def logs_stats(
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """Show aggregated session statistics."""
+    from sumospace.settings import SumoSettings
+    from sumospace.audit import AuditLogger
+    
+    settings = SumoSettings(workspace=workspace)
+    logger = AuditLogger(settings)
+    stats = logger.stats()
+    
+    if not stats:
+        console.print("[yellow]No stats index found. Run some tasks first.[/yellow]")
+        return
+        
+    console.print("[bold cyan]Session Statistics[/bold cyan]")
+    console.print(f"Total Sessions:     {stats['total_sessions']}")
+    success_rate = (stats['successful_sessions'] / stats['total_sessions']) * 100
+    console.print(f"Success Rate:       {success_rate:.1f}% ({stats['successful_sessions']}/{stats['total_sessions']})")
+    avg_duration = stats['total_duration_ms'] / stats['total_sessions'] / 1000
+    console.print(f"Avg Duration:       {avg_duration:.1f}s")
+    
+    table = Table(title="\nTop Intents", box=None)
+    table.add_column("Intent", style="magenta")
+    table.add_column("Count", justify="right")
+    for intent, count in sorted(stats.get("intent_usage", {}).items(), key=lambda x: x[1], reverse=True):
+        table.add_row(intent, str(count))
+    console.print(table)
+    
+    table = Table(title="\nTool Usage", box=None)
+    table.add_column("Tool", style="green")
+    table.add_column("Success", style="green", justify="right")
+    table.add_column("Fail", style="red", justify="right")
+    table.add_column("Rate", justify="right")
+    
+    for tool, usage in sorted(stats.get("tool_usage", {}).items(), key=lambda x: x[1]["success"] + x[1]["fail"], reverse=True):
+        total = usage["success"] + usage["fail"]
+        rate = (usage["success"] / total) * 100
+        table.add_row(tool, str(usage["success"]), str(usage["fail"]), f"{rate:.0f}%")
+    console.print(table)
+
+@logs_app.command("export")
+def logs_export(
+    session_id: str = typer.Argument(..., help="Session ID to export"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file path"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """Export a session trace to a Markdown report."""
+    from sumospace.settings import SumoSettings
+    from sumospace.audit import AuditLogger
+    
+    settings = SumoSettings(workspace=workspace)
+    logger = AuditLogger(settings)
+    content = logger.export(session_id)
+    
+    if not content:
+        console.print(f"[red]Session {session_id} not found.[/red]")
+        return
+        
+    out_path = output or Path(f"session_{session_id[:8]}.md")
+    out_path.write_text(content, encoding="utf-8")
+    console.print(f"[green]✓ Exported report to {out_path}[/green]")
 
 
 # ─── run ────────────────────────────────────────────────────────────────────

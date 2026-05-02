@@ -139,6 +139,20 @@ class TestKernelRun:
             await kernel.boot()
         return kernel
 
+    async def test_stream_run_returns_trace_and_steps(self, tmp_path, tmp_chroma, mock_provider):
+        kernel = await self._make_kernel(tmp_path, tmp_chroma, mock_provider)
+        
+        events = []
+        async for event in kernel.stream_run("List files"):
+            events.append(event)
+            
+        assert len(events) >= 2
+        
+        from sumospace.kernel import StepTrace, ExecutionTrace
+        assert any(isinstance(e, StepTrace) for e in events)
+        assert isinstance(events[-1], ExecutionTrace)
+        assert events[-1].success is True
+
     async def test_run_returns_trace(self, tmp_path, tmp_chroma, mock_provider):
         kernel = SumoKernel(fast_config(tmp_path, tmp_chroma))
         with patch("sumospace.kernel.ProviderRouter") as MockRouter:

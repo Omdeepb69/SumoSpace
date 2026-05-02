@@ -561,14 +561,57 @@ class UniversalIngestor:
         else:
             self._embedder = LocalEmbeddingProvider(model_name=self.embedding_model)
 
-    async def ingest_file(self, path: str | Path) -> IngestionResult:
-        """Ingest a single file."""
+    def _file_hash(self, path: Path) -> str:
+        """SHA256 of file content — used to detect changes."""
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for block in iter(lambda: f.read(8192), b""):
+                h.update(block)
+        return h.hexdigest()[:16]
+
+    async def ingest_file(self, path: str | Path, force: bool = False) -> IngestionResult:
+        """
+        Ingest a single file, skipping if unchanged since last ingest.
+        Set force=True to re-ingest regardless of modification.
+        """
         import time
         path = Path(path)
         start = time.monotonic()
+        
+        if not path.exists():
+            return IngestionResult(
+                source=str(path),
+                chunks_created=0,
+                loader_used="none",
+                duration_ms=(time.monotonic() - start) * 1000,
+                errors=[f"File not found: {path}"],
+            )
+            
+        content_hash = self._file_hash(path)
+
+        if not force and self._collection is not None:
+            try:
+                existing = self._collection.get(
+                    where={"source_hash": content_hash},
+                    limit=1,
+                )
+                if existing and existing["ids"]:
+                    return IngestionResult(
+                        source=str(path),
+                        chunks_created=0,
+                        loader_used="skipped (unchanged)",
+                        duration_ms=(time.monotonic() - start) * 1000,
+                    )
+            except Exception:
+                pass  # If metadata query fails, proceed with full ingest
 
         loader = self._get_loader(path)
         chunks = await loader.load(path)
+
+        # Inject source_hash into every chunk's metadata
+        for chunk in chunks:
+            chunk.metadata["source_hash"] = content_hash
+            chunk.metadata["source"] = str(path)
 
         errors: list[str] = []
         await self._embed_and_store(chunks, errors)
@@ -586,6 +629,7 @@ class UniversalIngestor:
         directory: str | Path,
         extensions: set[str] | None = None,
         exclude_patterns: list[str] | None = None,
+        force: bool = False,
     ) -> list[IngestionResult]:
         """
         Recursively ingest all files in a directory.
@@ -594,6 +638,7 @@ class UniversalIngestor:
             directory:        Root directory to scan.
             extensions:       Whitelist of file extensions (e.g., {".py", ".md"}).
             exclude_patterns: Patterns to exclude (e.g., ["__pycache__", ".git"]).
+            force:            Re-ingest all files regardless of modification.
         """
         exclude_patterns = exclude_patterns or [
             "__pycache__", ".git", "node_modules", ".venv", "venv",
@@ -613,7 +658,7 @@ class UniversalIngestor:
                     continue
 
                 try:
-                    result = await self.ingest_file(filepath)
+                    result = await self.ingest_file(filepath, force=force)
                     results.append(result)
                     console.print(
                         f"[green]✓[/green] {filepath} "
@@ -625,6 +670,23 @@ class UniversalIngestor:
                         loader_used="error", duration_ms=0,
                         errors=[str(e)],
                     ))
+
+        # Step 3: Cleanup — remove chunks for files that no longer exist on disk
+        try:
+            # Get all sources in the current collection
+            all_metadatas = self._collection.get(include=["metadatas"])["metadatas"]
+            all_sources = {m.get("source") for m in all_metadatas if m.get("source")}
+            
+            deleted_count = 0
+            for source in all_sources:
+                if not Path(source).exists():
+                    self._collection.delete(where={"source": source})
+                    deleted_count += 1
+            
+            if deleted_count > 0:
+                console.print(f"[dim]Cleaned up {deleted_count} deleted files from store[/dim]")
+        except Exception as e:
+            console.print(f"[yellow]Cleanup skipped: {e}[/yellow]")
 
         return results
 

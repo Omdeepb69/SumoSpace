@@ -246,16 +246,31 @@ class OllamaProvider(BaseProvider):
             messages.insert(0, {"role": "system", "content": system})
         messages.append({"role": "user", "content": user})
 
-        resp = await self._client.post(
-            "/api/chat",
-            json={
-                "model": self.model,
-                "messages": messages,
-                "stream": False,
-                "options": {"temperature": temperature, "num_predict": max_tokens},
-            },
-        )
-        return resp.json()["message"]["content"]
+        import httpx
+        from sumospace.exceptions import ProviderError, ProviderNotConfiguredError
+        
+        try:
+            resp = await self._client.post(
+                "/api/chat",
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {"temperature": temperature, "num_predict": max_tokens},
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("message", {}).get("content", "")
+        except httpx.HTTPStatusError as e:
+            raise ProviderError(
+                f"Ollama returned HTTP {e.response.status_code}. "
+                f"Is the model '{self.model}' loaded? Run: ollama pull {self.model}"
+            ) from e
+        except httpx.ConnectError:
+            raise ProviderNotConfiguredError(
+                f"Cannot reach Ollama at {self.base_url}. Run: ollama serve"
+            )
 
     async def stream(
         self, user: str, system: str = "", temperature: float = 0.2
@@ -451,6 +466,92 @@ class AnthropicProvider(BaseProvider):
                 yield text
 
 
+class VLLMProvider(BaseProvider):
+    """
+    vLLM inference server — OpenAI-compatible API.
+    Best for: multi-user deployments, GPU servers, high throughput.
+    Requires: pip install sumospace[vllm] + running vLLM server.
+
+    Launch: vllm serve microsoft/Phi-3-mini-4k-instruct --dtype auto
+    """
+    name = "vllm"
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://localhost:8000",
+        api_key: str = "EMPTY",
+        max_concurrent: int = 10,
+        **kwargs
+    ):
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self._client = None
+
+    async def initialize(self):
+        import httpx
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=300,
+        )
+        # Health check
+        try:
+            r = await self._client.get("/health")
+            r.raise_for_status()
+        except Exception:
+            raise ProviderNotConfiguredError(
+                f"vLLM server not reachable at {self.base_url}.\n"
+                f"Start with: vllm serve {self.model} --dtype auto"
+            )
+
+    async def complete(
+        self, user: str, system: str = "", temperature: float = 0.2, max_tokens: int = 2048
+    ) -> str:
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+
+        resp = await self._client.post(
+            "/v1/chat/completions",
+            json={
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+    async def stream(
+        self, user: str, system: str = "", temperature: float = 0.2
+    ) -> AsyncIterator[str]:
+        import json
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": user})
+
+        async with self._client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": True,
+            },
+        ) as r:
+            async for line in r.aiter_lines():
+                if line.startswith("data: ") and line != "data: [DONE]":
+                    data = json.loads(line[6:])
+                    if delta := data["choices"][0]["delta"].get("content"):
+                        yield delta
+
+
 # ─── Provider Registry ────────────────────────────────────────────────────────
 
 PROVIDERS: dict[str, type[BaseProvider]] = {
@@ -460,6 +561,7 @@ PROVIDERS: dict[str, type[BaseProvider]] = {
     "gemini":      GeminiProvider,
     "openai":      OpenAIProvider,
     "anthropic":   AnthropicProvider,
+    "vllm":        VLLMProvider,
 }
 
 
@@ -506,6 +608,7 @@ class ProviderRouter:
         self._model = model
         self._kwargs = kwargs
         self._provider: BaseProvider | None = None
+        self._secondary: BaseProvider | None = None
 
     async def initialize(self):
         from rich.console import Console
@@ -534,12 +637,59 @@ class ProviderRouter:
 
         self._provider = cls(**init_kwargs)
         await self._provider.initialize()
+        
+        # If cloud provider, set HF as secondary fallback
+        if self._provider_name in ["gemini", "openai", "anthropic"]:
+            self._secondary = HuggingFaceProvider(model="default")
+            await self._secondary.initialize()
 
     async def complete(self, **kwargs) -> str:
-        return await self._provider.complete(**kwargs)
+        from sumospace.exceptions import ProviderError, ProviderNotConfiguredError
+        import httpx
+        
+        try:
+            res = await self._provider.complete(**kwargs)
+            if not res or not res.strip():
+                raise ProviderError("Provider returned empty response")
+            return res
+        except (httpx.ConnectError, httpx.TimeoutException, ProviderError, ProviderNotConfiguredError) as e:
+            # Check if it's a non-fallbackable error (400, 401)
+            if hasattr(e, "response") and e.response.status_code in [400, 401]:
+                raise
+            
+            if self._secondary:
+                from rich.console import Console
+                Console().print(f"[yellow]Primary provider failed ({e}), falling back to {self._secondary.name}...[/yellow]")
+                res = await self._secondary.complete(**kwargs)
+                if not res or not res.strip():
+                    raise ProviderError("Fallback provider also returned empty response")
+                return res
+            raise
 
     async def stream(self, **kwargs) -> AsyncIterator[str]:
-        return self._provider.stream(**kwargs)
+        from sumospace.exceptions import ProviderError, ProviderNotConfiguredError
+        import httpx
+        
+        try:
+            any_tokens = False
+            async for chunk in self._provider.stream(**kwargs):
+                any_tokens = True
+                yield chunk
+            
+            if not any_tokens:
+                raise ProviderError("Provider returned empty stream")
+                
+        except (httpx.ConnectError, httpx.TimeoutException, ProviderError, ProviderNotConfiguredError) as e:
+            if hasattr(e, "response") and e.response.status_code in [400, 401]:
+                raise
+                
+            if self._secondary:
+                from rich.console import Console
+                Console().print(f"[yellow]Primary provider failed ({e}), falling back to {self._secondary.name}...[/yellow]")
+                async for chunk in self._secondary.stream(**kwargs):
+                    yield chunk
+                return
+            raise
 
     @property
     def provider_name(self) -> str:

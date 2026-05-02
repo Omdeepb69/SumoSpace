@@ -60,6 +60,16 @@ class TestCloudProviderMissingKey:
         assert "ANTHROPIC_API_KEY" in str(exc.value)
 
 
+class TestVLLMProvider:
+    @pytest.mark.asyncio
+    async def test_vllm_raises_when_not_running(self):
+        from sumospace.providers import VLLMProvider
+        p = VLLMProvider(model="phi3", base_url="http://localhost:19999")
+        with pytest.raises(ProviderNotConfiguredError) as exc:
+            await p.initialize()
+        assert "vLLM server not reachable" in str(exc.value)
+
+
 class TestOllamaProvider:
     def test_model_alias_resolution(self):
         p = OllamaProvider(model="default")

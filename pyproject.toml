@@ -48,15 +48,30 @@ dependencies = [
 
     # File locking for scope manager
     "filelock>=3.12",
+
+    # Observability (tiny, no-op by default)
+    "opentelemetry-api>=1.24.0",
 ]
 
 [project.optional-dependencies]
+
+# ── Observability & Instrumentation ───────────────────────────────────────────
+# pip install sumospace[telemetry]
+telemetry = [
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.24.0",
+]
 
 # ── Local model inference (bitsandbytes for 4-bit quantization) ───────────────
 # pip install sumospace[local]
 local = [
     "bitsandbytes>=0.43.0",
     "scipy>=1.13.0",
+]
+
+# pip install sumospace[vllm]
+vllm = [
+    "vllm>=0.4.0",
 ]
 
 # ── Cloud providers (opt-in, each requires their own API key) ─────────────────
