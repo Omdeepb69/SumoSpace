@@ -72,3 +72,10 @@ coverage.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Scratch and test output files
+dry_run_fail.txt
+full_suite_final*.txt
+test_output.txt
+uploaded_images/
+
