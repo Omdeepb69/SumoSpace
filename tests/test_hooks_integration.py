@@ -42,18 +42,16 @@ async def test_hook_firing_order(tmp_path):
                 needs_web=False, needs_retrieval=False
             ))
         
-        mock_plan = ExecutionPlan(task="test", steps=[])
-        kernel._committee.deliberate = MagicMock(return_value=CommitteeVerdict(
-            approved=True, plan=mock_plan, planner_output="mock"
-        ))
-        
-        # We need at least one step to test on_step_complete
-        mock_plan.steps = [{"step_number": 1, "tool": "shell", "description": "test"}]
-        # Actually ExecutionPlan expects ExecutionStep objects
-        from sumospace.committee import ExecutionStep
-        mock_plan.steps = [ExecutionStep(1, "shell", "test", {"command": "echo 1"})]
-        
-        await kernel.run("do something")
+            from sumospace.committee import ExecutionStep
+            mock_plan = ExecutionPlan(task="test", steps=[
+                ExecutionStep(1, "shell", "test", {"command": "echo 1"})
+            ])
+            kernel._committee.deliberate = AsyncMock(return_value=CommitteeVerdict(
+                approved=True, plan=mock_plan, planner_output="mock",
+                critic_output="mock", resolver_output="mock"
+            ))
+            
+            await kernel.run("do something")
 
     assert fired[0] == "task_start"
     assert fired[-1] == "task_complete"

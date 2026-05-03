@@ -1,21 +1,31 @@
-# Byte-compiled / optimized / DLL files
+# Build
+dist/
+build/
+*.egg-info/
+.eggs/
+pyproject.toml.bak
+
+# SumoSpace runtime
+.sumo_db/
+.sumo_audit/
+.sumo_desktop_db/
+.sumo_image_db/
+.sumo_finance_db/
+.sumo_cache/
+.sumo_secrets/
+examples/sumofinance
+*.jsonl
+*.log
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-examples/sumofinance
-sumo
-sumo/
-# Distribution / packaging
 .Python
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
-.eggs/
 lib/
 lib64/
 parts/
@@ -23,89 +33,42 @@ sdist/
 var/
 wheels/
 share/python-wheels/
-*.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
-
-# Environments
-.env
-.venv
-env/
+# Virtual Environments
+.venv/
 venv/
 ENV/
-env.bak/
-venv.bak/
+env/
 
-# MyPy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.pyre/
+# Environment
+.env
+.env.*
+!.env.example
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# VS Code / IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+.project
+.pydevproject
+.settings/
 
-# OS generated files
+# Coverage / Testing
+.coverage
+htmlcov/
+coverage.xml
+.pytest_cache/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+.stack-work/
+
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
-
-# -------------------------------------
-# SumoSpace Specific Exclusions
-# -------------------------------------
-
-# Local databases and collections
-.sumo_db/
-.sumo_desktop_db/
-.sumo_image_db/
-chroma.sqlite3
-*.db
-*.sqlite
-
-# Local uploaded files or screenshots from testing
-uploaded_images/
-/tmp/sumo_screenshots/
-*.png
-*.jpg
-*.jpeg
-*.webp
-*.mp4
-
-# Checkpoints and state
-.sumospace_ingest_state.json

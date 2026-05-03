@@ -1,0 +1,426 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.4, pytest-9.0.2, pluggy-1.6.0 -- /mnt/data/projects/ardupilot/venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /mnt/data/projects/sumospace/sumospace
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-7.1.0, asyncio-1.3.0, anyio-4.12.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 269 items
+
+tests/test_audit.py::test_audit_log_and_index PASSED                     [  0%]
+tests/test_audit.py::test_list_sessions PASSED                           [  0%]
+tests/test_audit.py::test_search_sessions PASSED                         [  1%]
+tests/test_audit.py::test_export_markdown PASSED                         [  1%]
+tests/test_cache.py::test_plan_cache_set_and_get PASSED                  [  1%]
+tests/test_cache.py::test_plan_cache_ttl_eviction PASSED                 [  2%]
+tests/test_cache.py::test_plan_cache_invalidation PASSED                 [  2%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_debug_intent PASSED [  2%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_refactor_intent PASSED [  3%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_write_tests_intent PASSED [  3%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_scan_directory_intent PASSED [  4%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_docker_intent PASSED [  4%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_dependency_intent PASSED [  4%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_web_search_intent PASSED [  5%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_summarize_intent PASSED [  5%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_ingest_intent PASSED [  5%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_unknown_returns_none PASSED [  6%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_needs_execution_flag PASSED [  6%]
+tests/test_classifier.py::TestRuleBasedClassifier::test_needs_web_flag PASSED [  7%]
+tests/test_classifier.py::TestEntityExtractor::test_extract_python_file PASSED [  7%]
+tests/test_classifier.py::TestEntityExtractor::test_extract_url PASSED   [  7%]
+tests/test_classifier.py::TestEntityExtractor::test_extract_function PASSED [  8%]
+tests/test_classifier.py::TestEntityExtractor::test_extract_class PASSED [  8%]
+tests/test_classifier.py::TestEntityExtractor::test_extract_package PASSED [  8%]
+tests/test_classifier.py::TestLLMClassifier::test_classifies_with_mock PASSED [  9%]
+tests/test_classifier.py::TestLLMClassifier::test_handles_malformed_json PASSED [  9%]
+tests/test_classifier.py::TestSumoClassifier::test_full_classify_pipeline PASSED [ 10%]
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash PASSED [ 10%]
+tests/test_committee.py::TestPlannerAgent::test_plan_returns_execution_plan PASSED [ 10%]
+tests/test_committee.py::TestPlannerAgent::test_plan_with_context PASSED [ 11%]
+tests/test_committee.py::TestPlannerAgent::test_plan_step_has_required_fields PASSED [ 11%]
+tests/test_committee.py::TestPlannerAgent::test_plan_fallback_on_bad_json PASSED [ 11%]
+tests/test_committee.py::TestCriticAgent::test_critique_approve PASSED   [ 12%]
+tests/test_committee.py::TestCriticAgent::test_critique_returns_lists PASSED [ 12%]
+tests/test_committee.py::TestCriticAgent::test_critique_fallback_on_bad_json PASSED [ 13%]
+tests/test_committee.py::TestResolverAgent::test_resolve_approve_when_critic_approves PASSED [ 13%]
+tests/test_committee.py::TestResolverAgent::test_resolve_calls_llm_when_critic_revises PASSED [ 13%]
+tests/test_committee.py::TestResolverAgent::test_resolve_reject_on_unresolvable PASSED [ 14%]
+tests/test_committee.py::TestCommittee::test_deliberate_approves_safe_task PASSED [ 14%]
+tests/test_committee.py::TestCommittee::test_deliberate_skips_consensus_when_disabled PASSED [ 14%]
+tests/test_committee.py::TestCommittee::test_deliberate_returns_plan PASSED [ 15%]
+tests/test_committee.py::TestCommittee::test_deliberate_populates_outputs PASSED [ 15%]
+tests/test_committee.py::TestCommittee::test_rejection_when_critic_blocks PASSED [ 15%]
+tests/test_committee.py::TestCommittee::test_committee_accepts_custom_agents PASSED [ 16%]
+tests/test_committee_toggle.py::test_committee_disabled_returns_direct_inference PASSED [ 16%]
+tests/test_committee_toggle.py::test_committee_disabled_still_fires_hooks PASSED [ 17%]
+tests/test_committee_toggle.py::test_committee_disabled_still_writes_audit_log PASSED [ 17%]
+tests/test_committee_toggle.py::test_plan_only_mode_skips_critic PASSED  [ 17%]
+tests/test_committee_toggle.py::test_critique_only_mode_skips_resolver PASSED [ 18%]
+tests/test_committee_toggle.py::test_full_mode_runs_all_three_agents PASSED [ 18%]
+tests/test_concurrency.py::test_concurrency_isolation PASSED             [ 18%]
+tests/test_concurrency.py::test_concurrency_shared_safety PASSED         [ 19%]
+tests/test_error_recovery.py::test_provider_fallback_on_connect_error PASSED [ 19%]
+tests/test_error_recovery.py::test_provider_no_fallback_on_bad_request PASSED [ 20%]
+tests/test_error_recovery.py::test_provider_fallback_on_empty_response PASSED [ 20%]
+tests/test_hooks.py::TestHookRegistration::test_register_valid_event PASSED [ 20%]
+tests/test_hooks.py::TestHookRegistration::test_register_invalid_event_raises PASSED [ 21%]
+tests/test_hooks.py::TestHookRegistration::test_decorator_registration PASSED [ 21%]
+tests/test_hooks.py::TestHookRegistration::test_decorator_invalid_event_raises PASSED [ 21%]
+tests/test_hooks.py::TestHookRegistration::test_clear_specific_event PASSED [ 22%]
+tests/test_hooks.py::TestHookRegistration::test_clear_all PASSED         [ 22%]
+tests/test_hooks.py::TestHookRegistration::test_registered_events PASSED [ 23%]
+tests/test_hooks.py::TestHookRegistration::test_count_total PASSED       [ 23%]
+tests/test_hooks.py::TestHookTrigger::test_async_hook_called PASSED      [ 23%]
+tests/test_hooks.py::TestHookTrigger::test_sync_hook_called_via_executor PASSED [ 24%]
+tests/test_hooks.py::TestHookTrigger::test_multiple_hooks_all_called PASSED [ 24%]
+tests/test_hooks.py::TestHookTrigger::test_hook_exception_does_not_propagate PASSED [ 24%]
+tests/test_hooks.py::TestHookTrigger::test_hook_exception_does_not_affect_other_hooks PASSED [ 25%]
+tests/test_hooks.py::TestHookTrigger::test_trigger_no_hooks_is_noop PASSED [ 25%]
+tests/test_hooks.py::TestHookTrigger::test_all_hook_events_are_valid PASSED [ 26%]
+tests/test_hooks_integration.py::test_hook_firing_order PASSED           [ 26%]
+tests/test_ingest.py::TestRecursiveTextSplitter::test_short_text_not_split PASSED [ 26%]
+tests/test_ingest.py::TestRecursiveTextSplitter::test_long_text_split PASSED [ 27%]
+tests/test_ingest.py::TestRecursiveTextSplitter::test_empty_text PASSED  [ 27%]
+tests/test_ingest.py::TestRecursiveTextSplitter::test_paragraph_split_preferred PASSED [ 27%]
+tests/test_ingest.py::TestTextLoader::test_can_handle_txt PASSED         [ 28%]
+tests/test_ingest.py::TestTextLoader::test_can_handle_md PASSED          [ 28%]
+tests/test_ingest.py::TestTextLoader::test_cannot_handle_py PASSED       [ 28%]
+tests/test_ingest.py::TestTextLoader::test_load_returns_chunks PASSED    [ 29%]
+tests/test_ingest.py::TestTextLoader::test_load_with_unicode PASSED      [ 29%]
+tests/test_ingest.py::TestJSONLoader::test_can_handle_json PASSED        [ 30%]
+tests/test_ingest.py::TestJSONLoader::test_load_valid_json PASSED        [ 30%]
+tests/test_ingest.py::TestJSONLoader::test_load_malformed_json_fallback PASSED [ 30%]
+tests/test_ingest.py::TestCSVLoader::test_load_csv PASSED                [ 31%]
+tests/test_ingest.py::TestCSVLoader::test_csv_metadata PASSED            [ 31%]
+tests/test_ingest.py::TestPythonASTLoader::test_can_handle_py PASSED     [ 31%]
+tests/test_ingest.py::TestPythonASTLoader::test_cannot_handle_js PASSED  [ 32%]
+tests/test_ingest.py::TestPythonASTLoader::test_load_function PASSED     [ 32%]
+tests/test_ingest.py::TestPythonASTLoader::test_load_class PASSED        [ 33%]
+tests/test_ingest.py::TestPythonASTLoader::test_syntax_error_fallback PASSED [ 33%]
+tests/test_ingest.py::TestPythonASTLoader::test_imports_extracted PASSED [ 33%]
+tests/test_ingest.py::TestUniversalIngestor::test_initialize PASSED      [ 34%]
+tests/test_ingest.py::TestUniversalIngestor::test_ingest_text_file PASSED [ 34%]
+tests/test_ingest.py::TestUniversalIngestor::test_ingest_python_file PASSED [ 34%]
+tests/test_ingest.py::TestUniversalIngestor::test_ingest_directory PASSED [ 35%]
+tests/test_ingest.py::TestUniversalIngestor::test_query_after_ingest PASSED [ 35%]
+tests/test_ingest.py::TestUniversalIngestor::test_ingest_nonexistent_file PASSED [ 36%]
+tests/test_ingest.py::TestUniversalIngestor::test_chunk_deduplication PASSED [ 36%]
+tests/test_ingest.py::TestUniversalIngestor::test_incremental_ingest_skips_unchanged PASSED [ 36%]
+tests/test_ingest.py::TestUniversalIngestor::test_incremental_ingest_force PASSED [ 37%]
+tests/test_kernel.py::TestKernelConfig::test_defaults PASSED             [ 37%]
+tests/test_kernel.py::TestKernelConfig::test_custom_config PASSED        [ 37%]
+tests/test_kernel.py::TestSumoKernelBoot::test_boot_with_mock_provider PASSED [ 38%]
+tests/test_kernel.py::TestSumoKernelBoot::test_context_manager PASSED    [ 38%]
+tests/test_kernel.py::TestExecutionTrace::test_trace_defaults PASSED     [ 39%]
+tests/test_kernel.py::TestExecutionTrace::test_failed_steps_filter PASSED [ 39%]
+tests/test_kernel.py::TestExecutionTrace::test_tool_outputs PASSED       [ 39%]
+tests/test_kernel.py::TestKernelRun::test_stream_run_returns_trace_and_steps PASSED [ 40%]
+tests/test_kernel.py::TestKernelRun::test_run_returns_trace PASSED       [ 40%]
+tests/test_kernel.py::TestKernelRun::test_dry_run_no_tool_execution PASSED [ 40%]
+tests/test_kernel.py::TestKernelRun::test_chat_returns_string PASSED     [ 41%]
+tests/test_kernel.py::TestKernelRun::test_ingest_returns_chunk_count PASSED [ 41%]
+tests/test_memory.py::TestMemoryEntry::test_id_is_deterministic PASSED   [ 42%]
+tests/test_memory.py::TestMemoryEntry::test_different_content_different_id PASSED [ 42%]
+tests/test_memory.py::TestMemoryEntry::test_to_dict PASSED               [ 42%]
+tests/test_memory.py::TestWorkingMemory::test_add_and_retrieve PASSED    [ 43%]
+tests/test_memory.py::TestWorkingMemory::test_ring_buffer_eviction PASSED [ 43%]
+tests/test_memory.py::TestWorkingMemory::test_recent_n PASSED            [ 43%]
+tests/test_memory.py::TestWorkingMemory::test_as_messages PASSED         [ 44%]
+tests/test_memory.py::TestWorkingMemory::test_clear PASSED               [ 44%]
+tests/test_memory.py::TestWorkingMemory::test_summary PASSED             [ 44%]
+tests/test_memory.py::TestEpisodicMemory::test_initialize PASSED         [ 45%]
+tests/test_memory.py::TestEpisodicMemory::test_store_and_recall PASSED   [ 45%]
+tests/test_memory.py::TestEpisodicMemory::test_store_message_helper PASSED [ 46%]
+tests/test_memory.py::TestEpisodicMemory::test_working_memory_updated_on_store PASSED [ 46%]
+tests/test_memory.py::TestEpisodicMemory::test_count PASSED              [ 46%]
+tests/test_memory.py::TestMemoryManager::test_initialize PASSED          [ 47%]
+tests/test_memory.py::TestMemoryManager::test_add_and_recent PASSED      [ 47%]
+tests/test_memory.py::TestMemoryManager::test_recall PASSED              [ 47%]
+tests/test_memory.py::TestMemoryManager::test_session_id_auto_generated PASSED [ 48%]
+tests/test_memory.py::TestMemoryManager::test_context_string PASSED      [ 48%]
+tests/test_plugin_tools.py::test_validate_params_success PASSED          [ 49%]
+tests/test_plugin_tools.py::test_validate_params_failure PASSED          [ 49%]
+tests/test_plugin_tools.py::test_describe PASSED                         [ 49%]
+tests/test_plugin_tools.py::test_execute_validates_params PASSED         [ 50%]
+tests/test_plugin_tools.py::test_discover_plugins PASSED                 [ 50%]
+tests/test_presets.py::test_for_chat_disables_committee_and_rag PASSED   [ 50%]
+tests/test_presets.py::test_for_chat_with_context PASSED                 [ 51%]
+tests/test_presets.py::test_for_chat_stateless PASSED                    [ 51%]
+tests/test_presets.py::test_for_review_disables_execution PASSED         [ 52%]
+tests/test_presets.py::test_for_coding_enables_sandbox PASSED            [ 52%]
+tests/test_presets.py::test_for_research_enables_plan_only PASSED        [ 52%]
+tests/test_presets.py::test_preset_kwargs_override_preset_defaults PASSED [ 53%]
+tests/test_providers.py::TestModelCatalogues::test_hf_default_models_has_default PASSED [ 53%]
+tests/test_providers.py::TestModelCatalogues::test_ollama_default_models_has_default PASSED [ 53%]
+tests/test_providers.py::TestModelCatalogues::test_providers_registry_complete PASSED [ 54%]
+tests/test_providers.py::TestCloudProviderMissingKey::test_gemini_requires_key PASSED [ 54%]
+tests/test_providers.py::TestCloudProviderMissingKey::test_openai_requires_key PASSED [ 55%]
+tests/test_providers.py::TestCloudProviderMissingKey::test_anthropic_requires_key PASSED [ 55%]
+tests/test_providers.py::TestVLLMProvider::test_vllm_raises_when_not_running PASSED [ 55%]
+tests/test_providers.py::TestOllamaProvider::test_model_alias_resolution PASSED [ 56%]
+tests/test_providers.py::TestOllamaProvider::test_custom_model_passthrough PASSED [ 56%]
+tests/test_providers.py::TestOllamaProvider::test_default_base_url PASSED [ 56%]
+tests/test_providers.py::TestOllamaProvider::test_ollama_raises_when_not_running PASSED [ 57%]
+tests/test_providers.py::TestProviderRouter::test_unknown_provider_does_not_crash_init PASSED [ 57%]
+tests/test_providers.py::TestProviderRouter::test_unknown_provider_raises_at_initialize PASSED [ 57%]
+tests/test_providers.py::TestProviderRouter::test_provider_name_property PASSED [ 58%]
+tests/test_providers.py::TestProviderRouter::test_model_passed_to_provider PASSED [ 58%]
+tests/test_providers.py::TestProviderRouter::test_auto_falls_back_to_hf_when_ollama_missing PASSED [ 59%]
+tests/test_rag.py::TestCrossEncoderReranker::test_rerank_basic PASSED    [ 59%]
+tests/test_rag.py::TestCrossEncoderReranker::test_rerank_empty_list PASSED [ 59%]
+tests/test_rag.py::TestCrossEncoderReranker::test_rerank_single_chunk PASSED [ 60%]
+tests/test_rag.py::TestRAGPipeline::test_initialize PASSED               [ 60%]
+tests/test_rag.py::TestRAGPipeline::test_retrieve_relevant_chunks PASSED [ 60%]
+tests/test_rag.py::TestRAGPipeline::test_retrieve_with_reranking PASSED  [ 61%]
+tests/test_rag.py::TestRAGPipeline::test_retrieve_without_reranking PASSED [ 61%]
+tests/test_rag.py::TestRAGPipeline::test_retrieve_returns_scored_chunks PASSED [ 62%]
+tests/test_rag.py::TestRAGPipeline::test_context_not_exceeds_max_chars PASSED [ 62%]
+tests/test_rag.py::TestRAGPipeline::test_build_prompt PASSED             [ 62%]
+tests/test_rag.py::TestRAGPipeline::test_force_no_rerank PASSED          [ 63%]
+tests/test_rag.py::TestRAGPipeline::test_total_candidates_tracked PASSED [ 63%]
+tests/test_rag.py::TestRetrievedChunk::test_final_score_uses_rerank_when_available PASSED [ 63%]
+tests/test_rag.py::TestRetrievedChunk::test_final_score_falls_back_to_vector PASSED [ 64%]
+tests/test_rag.py::TestRetrievedChunk::test_to_context_block_includes_source PASSED [ 64%]
+tests/test_rag.py::TestRetrievedChunk::test_to_context_block_with_page PASSED [ 65%]
+tests/test_scope.py::TestPathResolution::test_user_level PASSED          [ 65%]
+tests/test_scope.py::TestPathResolution::test_session_level PASSED       [ 65%]
+tests/test_scope.py::TestPathResolution::test_project_level PASSED       [ 66%]
+tests/test_scope.py::TestPathResolution::test_user_level_creates_parent_dirs PASSED [ 66%]
+tests/test_scope.py::TestPathResolution::test_session_level_creates_parent_dirs PASSED [ 66%]
+tests/test_scope.py::TestPathResolution::test_project_level_creates_parent_dirs PASSED [ 67%]
+tests/test_scope.py::TestPathResolution::test_user_level_missing_user_id PASSED [ 67%]
+tests/test_scope.py::TestPathResolution::test_session_level_missing_session_id PASSED [ 68%]
+tests/test_scope.py::TestPathResolution::test_session_level_missing_user_id PASSED [ 68%]
+tests/test_scope.py::TestPathResolution::test_project_level_missing_project_id PASSED [ 68%]
+tests/test_scope.py::TestPathResolution::test_project_level_missing_user_id PASSED [ 69%]
+tests/test_scope.py::TestPathResolution::test_invalid_level PASSED       [ 69%]
+tests/test_scope.py::TestPathResolution::test_different_users_get_different_paths PASSED [ 69%]
+tests/test_scope.py::TestPathResolution::test_different_sessions_get_different_paths PASSED [ 70%]
+tests/test_scope.py::TestPathResolution::test_different_projects_get_different_paths PASSED [ 70%]
+tests/test_scope.py::TestSessionRegistry::test_session_resolve_creates_registry PASSED [ 71%]
+tests/test_scope.py::TestSessionRegistry::test_multiple_sessions_tracked PASSED [ 71%]
+tests/test_scope.py::TestSessionRegistry::test_duplicate_resolve_does_not_duplicate PASSED [ 71%]
+tests/test_scope.py::TestSessionRegistry::test_concurrent_session_registration_no_corruption PASSED [ 72%]
+tests/test_scope.py::TestListSessions::test_list_empty PASSED            [ 72%]
+tests/test_scope.py::TestListSessions::test_list_sessions PASSED         [ 72%]
+tests/test_scope.py::TestListSessions::test_list_sessions_has_timestamps PASSED [ 73%]
+tests/test_scope.py::TestListSessions::test_list_sessions_returns_session_info PASSED [ 73%]
+tests/test_scope.py::TestDeleteSession::test_delete_session PASSED       [ 73%]
+tests/test_scope.py::TestDeleteSession::test_delete_removes_from_registry PASSED [ 74%]
+tests/test_scope.py::TestDeleteSession::test_delete_nonexistent_returns_false PASSED [ 74%]
+tests/test_scope.py::TestArchiveSession::test_archive_session PASSED     [ 75%]
+tests/test_scope.py::TestArchiveSession::test_archive_removes_from_registry PASSED [ 75%]
+tests/test_scope.py::TestArchiveSession::test_archive_path_structure PASSED [ 75%]
+tests/test_scope.py::TestCleanupExpired::test_cleanup_expired_removes_old PASSED [ 76%]
+tests/test_scope.py::TestCleanupExpired::test_cleanup_keeps_recent PASSED [ 76%]
+tests/test_scope.py::TestCleanupExpired::test_cleanup_mixed PASSED       [ 76%]
+tests/test_scope.py::TestGetStats::test_stats_empty PASSED               [ 77%]
+tests/test_scope.py::TestGetStats::test_stats_with_sessions PASSED       [ 77%]
+tests/test_scope.py::TestGetStats::test_stats_disk_usage PASSED          [ 78%]
+tests/test_scope.py::TestQuotaExceeded::test_quota_error_attributes PASSED [ 78%]
+tests/test_scope.py::TestQuotaExceeded::test_quota_error_is_sumo_error PASSED [ 78%]
+tests/test_scope.py::TestQuotaExceeded::test_ingestor_raises_quota_exceeded PASSED [ 79%]
+tests/test_scope.py::TestConcurrentLock::test_lock_serializes_ingestion PASSED [ 79%]
+tests/test_scope.py::TestConcurrentLock::test_concurrent_ingest_does_not_corrupt FAILED [ 79%]
+tests/test_scope.py::TestBackwardCompatibility::test_kernel_config_defaults PASSED [ 80%]
+tests/test_scope.py::TestBackwardCompatibility::test_memory_manager_no_scope PASSED [ 80%]
+tests/test_scope.py::TestBackwardCompatibility::test_ingestor_no_max_chunks PASSED [ 81%]
+tests/test_settings.py::test_explicit_kwarg_overrides_env PASSED         [ 81%]
+tests/test_settings.py::test_env_var_overrides_default PASSED            [ 81%]
+tests/test_settings.py::test_env_file_loads PASSED                       [ 82%]
+tests/test_telemetry.py::test_telemetry_disabled_is_noop PASSED          [ 82%]
+tests/test_telemetry.py::test_telemetry_enabled_creates_spans PASSED     [ 82%]
+tests/test_telemetry.py::test_telemetry_async_span PASSED                [ 83%]
+tests/test_templates.py::TestSafeFormatMap::test_returns_value_for_existing_key PASSED [ 83%]
+tests/test_templates.py::TestSafeFormatMap::test_returns_empty_for_missing_key PASSED [ 84%]
+tests/test_templates.py::TestSafeFormatMap::test_handles_all_missing PASSED [ 84%]
+tests/test_templates.py::TestTemplateManager::test_defaults_loaded PASSED [ 84%]
+tests/test_templates.py::TestTemplateManager::test_get_renders_template PASSED [ 85%]
+tests/test_templates.py::TestTemplateManager::test_get_missing_vars_returns_empty PASSED [ 85%]
+tests/test_templates.py::TestTemplateManager::test_get_unknown_template_returns_empty PASSED [ 85%]
+tests/test_templates.py::TestTemplateManager::test_raw_returns_unrendered PASSED [ 86%]
+tests/test_templates.py::TestTemplateManager::test_raw_unknown_returns_none PASSED [ 86%]
+tests/test_templates.py::TestTemplateManager::test_custom_template_overrides_default PASSED [ 86%]
+tests/test_templates.py::TestTemplateManager::test_custom_template_ignores_unknown_files PASSED [ 87%]
+tests/test_templates.py::TestTemplateManager::test_validates_unknown_vars_at_load_time PASSED [ 87%]
+tests/test_templates.py::TestTemplateManager::test_nonexistent_path_is_skipped PASSED [ 88%]
+tests/test_templates.py::TestTemplateManager::test_find_unknown_vars PASSED [ 88%]
+tests/test_templates.py::TestTemplateManager::test_find_unknown_vars_all_known PASSED [ 88%]
+tests/test_tools.py::TestReadFileTool::test_read_existing_file PASSED    [ 89%]
+tests/test_tools.py::TestReadFileTool::test_read_nonexistent_file PASSED [ 89%]
+tests/test_tools.py::TestReadFileTool::test_read_unicode_file PASSED     [ 89%]
+tests/test_tools.py::TestReadFileTool::test_metadata_populated PASSED    [ 90%]
+tests/test_tools.py::TestWriteFileTool::test_write_new_file PASSED       [ 90%]
+tests/test_tools.py::TestWriteFileTool::test_write_creates_directories PASSED [ 91%]
+tests/test_tools.py::TestWriteFileTool::test_write_overwrites_existing PASSED [ 91%]
+tests/test_tools.py::TestListDirectoryTool::test_list_directory PASSED   [ 91%]
+tests/test_tools.py::TestListDirectoryTool::test_filter_by_extension PASSED [ 92%]
+tests/test_tools.py::TestListDirectoryTool::test_nonrecursive_list PASSED [ 92%]
+tests/test_tools.py::TestListDirectoryTool::test_nonexistent_directory PASSED [ 92%]
+tests/test_tools.py::TestListDirectoryTool::test_metadata_count PASSED   [ 93%]
+tests/test_tools.py::TestSearchFilesTool::test_search_finds_match PASSED [ 93%]
+tests/test_tools.py::TestSearchFilesTool::test_search_no_match PASSED    [ 94%]
+tests/test_tools.py::TestSearchFilesTool::test_search_with_extension_filter PASSED [ 94%]
+tests/test_tools.py::TestSearchFilesTool::test_search_regex_pattern PASSED [ 94%]
+tests/test_tools.py::TestShellTool::test_run_echo PASSED                 [ 95%]
+tests/test_tools.py::TestShellTool::test_run_pwd PASSED                  [ 95%]
+tests/test_tools.py::TestShellTool::test_nonzero_exit_code PASSED        [ 95%]
+tests/test_tools.py::TestShellTool::test_timeout PASSED                  [ 96%]
+tests/test_tools.py::TestShellTool::test_blocked_command PASSED          [ 96%]
+tests/test_tools.py::TestShellTool::test_metadata_populated PASSED       [ 97%]
+tests/test_tools.py::TestShellTool::test_multiline_output PASSED         [ 97%]
+tests/test_tools.py::TestToolRegistry::test_list_tools PASSED            [ 97%]
+tests/test_tools.py::TestToolRegistry::test_get_existing_tool PASSED     [ 98%]
+tests/test_tools.py::TestToolRegistry::test_get_nonexistent_tool PASSED  [ 98%]
+tests/test_tools.py::TestToolRegistry::test_execute_nonexistent_tool PASSED [ 98%]
+tests/test_tools.py::TestToolRegistry::test_execute_shell PASSED         [ 99%]
+tests/test_tools.py::TestToolRegistry::test_register_custom_tool PASSED  [ 99%]
+tests/test_truncation.py::test_context_truncation_logic PASSED           [100%]
+
+=================================== FAILURES ===================================
+__________ TestConcurrentLock.test_concurrent_ingest_does_not_corrupt __________
+
+self = <tests.test_scope.TestConcurrentLock object at 0x7fa0434ed110>
+tmp_path = PosixPath('/tmp/pytest-of-omdeep-borkar/pytest-32/test_concurrent_ingest_does_no0')
+
+    @pytest.mark.asyncio
+    async def test_concurrent_ingest_does_not_corrupt(self, tmp_path):
+        """Two concurrent ingestions should both complete without errors."""
+        pytest.importorskip("chromadb")
+        from sumospace.ingest import UniversalIngestor
+    
+        db_path = str(tmp_path / "concurrent_db")
+    
+        # Create two test files
+        f1 = tmp_path / "file1.txt"
+        f1.write_text("File one content for ingestion test.")
+        f2 = tmp_path / "file2.txt"
+        f2.write_text("File two content for ingestion test.")
+    
+        ingestor = UniversalIngestor(
+            chroma_path=db_path,
+            collection_name="concurrent_test",
+        )
+        await ingestor.initialize()
+    
+        # Ingest both concurrently
+        r1, r2 = await asyncio.gather(
+            ingestor.ingest_file(str(f1)),
+            ingestor.ingest_file(str(f2)),
+        )
+    
+        assert r1.chunks_created > 0
+        assert r2.chunks_created > 0
+>       assert not r1.errors
+E       AssertionError: assert not ['Expected embeddings to be a list of floats or ints, a list of lists, a numpy array, or a list of numpy arrays, got [[np.float32(0.040092204), np.float32(0.010792724), np.float32(-0.0558961), np.float32(0.020426951), np.float32(0.07599797), np.float32(-0.034575976), np.float32(0.025195148), np.float32(0.1010455), np.float32(-0.08454361), np.float32(-0.0049587497), np.float32(0.058224794), np.float32(-0.00957576), np.float32(-0.025768327), np.float32(0.06723517), np.float32(-0.060198456), np.float32(-0.079166785), np.float32(0.027221758), np.float32(0.04198518), np.float32(-0.029551247), np.float32(0.010274478), np.float32(0.032847013), np.float32(0.059626255), np.float32(0.026929593), np.float32(-0.013592001), np.float32(-0.0035475057), np.float32(0.04727323), np.float32(-0.060534384), np.float32(-0.05963484), np.float32(-0.015919799), np.float32(-0.07322205), np.float32(0.10824032), np.float32(0.039251197), np.float32(0.044647776), np.float32(0.010308207), np.float32(0.09276324), np.float32(0.046410136), np.float32(0.043430425), np.float32(-0.04746417), np.float32(0.017548146), np.float32(-0.015134073), np.float32(0.062057357), np.float32(-0.036139432), np.float32(-0.027188841)... np.float32(-0.044450987), np.float32(-0.06643985), np.float32(-0.013109123), np.float32(-0.031835355), np.float32(0.051813785), np.float32(0.053107474), np.float32(0.00129084), np.float32(0.030762618), np.float32(0.0611398), np.float32(0.07558546), np.float32(0.019911645), np.float32(0.0115488265), np.float32(-0.0075377636), np.float32(0.03896907), np.float32(0.016092256), np.float32(-0.03865181), np.float32(0.018731575), np.float32(0.017200759), np.float32(0.004450621), np.float32(0.043677565), np.float32(0.04879607), np.float32(0.025237631), np.float32(0.027208943), np.float32(-0.046080906), np.float32(-0.007894438), np.float32(0.04528365), np.float32(0.0076961233), np.float32(-0.053684708), np.float32(-0.05401654), np.float32(-0.096093185), np.float32(-0.016412199), np.float32(-0.008343655), np.float32(-0.027161032), np.float32(0.029784903), np.float32(-0.04003339), np.float32(0.00017428608), np.float32(0.05298262), np.float32(0.0024928646), np.float32(0.027626798), np.float32(0.06963682), np.float32(-0.032990262), np.float32(0.009897768), np.float32(-0.015375261), np.float32(0.07455018), np.float32(0.052262962), np.float32(0.029097766), np.float32(-0.046650745)]] in upsert.']
+E        +  where ['Expected embeddings to be a list of floats or ints, a list of lists, a numpy array, or a list of numpy arrays, got [[np.float32(0.040092204), np.float32(0.010792724), np.float32(-0.0558961), np.float32(0.020426951), np.float32(0.07599797), np.float32(-0.034575976), np.float32(0.025195148), np.float32(0.1010455), np.float32(-0.08454361), np.float32(-0.0049587497), np.float32(0.058224794), np.float32(-0.00957576), np.float32(-0.025768327), np.float32(0.06723517), np.float32(-0.060198456), np.float32(-0.079166785), np.float32(0.027221758), np.float32(0.04198518), np.float32(-0.029551247), np.float32(0.010274478), np.float32(0.032847013), np.float32(0.059626255), np.float32(0.026929593), np.float32(-0.013592001), np.float32(-0.0035475057), np.float32(0.04727323), np.float32(-0.060534384), np.float32(-0.05963484), np.float32(-0.015919799), np.float32(-0.07322205), np.float32(0.10824032), np.float32(0.039251197), np.float32(0.044647776), np.float32(0.010308207), np.float32(0.09276324), np.float32(0.046410136), np.float32(0.043430425), np.float32(-0.04746417), np.float32(0.017548146), np.float32(-0.015134073), np.float32(0.062057357), np.float32(-0.036139432), np.float32(-0.027188841)... np.float32(-0.044450987), np.float32(-0.06643985), np.float32(-0.013109123), np.float32(-0.031835355), np.float32(0.051813785), np.float32(0.053107474), np.float32(0.00129084), np.float32(0.030762618), np.float32(0.0611398), np.float32(0.07558546), np.float32(0.019911645), np.float32(0.0115488265), np.float32(-0.0075377636), np.float32(0.03896907), np.float32(0.016092256), np.float32(-0.03865181), np.float32(0.018731575), np.float32(0.017200759), np.float32(0.004450621), np.float32(0.043677565), np.float32(0.04879607), np.float32(0.025237631), np.float32(0.027208943), np.float32(-0.046080906), np.float32(-0.007894438), np.float32(0.04528365), np.float32(0.0076961233), np.float32(-0.053684708), np.float32(-0.05401654), np.float32(-0.096093185), np.float32(-0.016412199), np.float32(-0.008343655), np.float32(-0.027161032), np.float32(0.029784903), np.float32(-0.04003339), np.float32(0.00017428608), np.float32(0.05298262), np.float32(0.0024928646), np.float32(0.027626798), np.float32(0.06963682), np.float32(-0.032990262), np.float32(0.009897768), np.float32(-0.015375261), np.float32(0.07455018), np.float32(0.052262962), np.float32(0.029097766), np.float32(-0.046650745)]] in upsert.'] = IngestionResult(source='/tmp/pytest-of-omdeep-borkar/pytest-32/test_concurrent_ingest_does_no0/file1.txt', chunks_created=1, loader_used='text', duration_ms=758.2801710013882, errors=['Expected embeddings to be a list of floats or ints, a list of lists, a numpy array, or a list of numpy arrays, got [[np.float32(0.040092204), np.float32(0.010792724), np.float32(-0.0558961), np.float32(0.020426951), np.float32(0.07599797), np.float32(-0.034575976), np.float32(0.025195148), np.float32(0.1010455), np.float32(-0.08454361), np.float32(-0.0049587497), np.float32(0.058224794), np.float32(-0.00957576), np.float32(-0.025768327), np.float32(0.06723517), np.float32(-0.060198456), np.float32(-0.079166785), np.float32(0.027221758), np.float32(0.04198518), np.float32(-0.029551247), np.float32(0.010274478), np.float32(0.032847013), np.float32(0.059626255), np.float32(0.026929593), np.float32(-0.013592001), np.float32(-0.0035475057), np.float32(0.04727323), np.float32(-0.060534384), np.float32(-0.05963484), np.float32(-0.015919799), np.float32(-0.07322205), np.float32(0.10824032), np.float32(0.039251197), np.float32(0.044647776), np.float32(0.010308207), np.float32(0.09276324), np.float32(0.04641...np.float32(-0.044450987), np.float32(-0.06643985), np.float32(-0.013109123), np.float32(-0.031835355), np.float32(0.051813785), np.float32(0.053107474), np.float32(0.00129084), np.float32(0.030762618), np.float32(0.0611398), np.float32(0.07558546), np.float32(0.019911645), np.float32(0.0115488265), np.float32(-0.0075377636), np.float32(0.03896907), np.float32(0.016092256), np.float32(-0.03865181), np.float32(0.018731575), np.float32(0.017200759), np.float32(0.004450621), np.float32(0.043677565), np.float32(0.04879607), np.float32(0.025237631), np.float32(0.027208943), np.float32(-0.046080906), np.float32(-0.007894438), np.float32(0.04528365), np.float32(0.0076961233), np.float32(-0.053684708), np.float32(-0.05401654), np.float32(-0.096093185), np.float32(-0.016412199), np.float32(-0.008343655), np.float32(-0.027161032), np.float32(0.029784903), np.float32(-0.04003339), np.float32(0.00017428608), np.float32(0.05298262), np.float32(0.0024928646), np.float32(0.027626798), np.float32(0.06963682), np.float32(-0.032990262), np.float32(0.009897768), np.float32(-0.015375261), np.float32(0.07455018), np.float32(0.052262962), np.float32(0.029097766), np.float32(-0.046650745)]] in upsert.']).errors
+
+tests/test_scope.py:432: AssertionError
+----------------------------- Captured stderr call -----------------------------
+'[Errno -2] Name or service not known' thrown while requesting HEAD https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/adapter_config.json
+Retrying in 1s [Retry 1/5].
+------------------------------ Captured log call -------------------------------
+WARNING  huggingface_hub.utils._http:_http.py:432 '[Errno -2] Name or service not known' thrown while requesting HEAD https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/adapter_config.json
+WARNING  huggingface_hub.utils._http:_http.py:445 Retrying in 1s [Retry 1/5].
+=============================== warnings summary ===============================
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash
+tests/test_classifier.py::TestSumoClassifier::test_classify_does_not_crash
+  /mnt/data/projects/ardupilot/venv/lib/python3.11/site-packages/torch/jit/_script.py:1480: DeprecationWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+tests/test_concurrency.py::test_concurrency_isolation
+tests/test_concurrency.py::test_concurrency_shared_safety
+  /mnt/data/projects/sumospace/sumospace/sumospace/kernel.py:857: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    async for chunk in self._provider.stream(user=user, system=system, temperature=0.1):
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+tests/test_kernel.py::TestKernelConfig::test_defaults
+  tests/test_kernel.py:25: PytestWarning: The test <Function test_defaults> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_defaults(self):
+
+tests/test_kernel.py::TestKernelConfig::test_custom_config
+  tests/test_kernel.py:34: PytestWarning: The test <Function test_custom_config> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_custom_config(self):
+
+tests/test_kernel.py::TestSumoKernelBoot::test_boot_with_mock_provider
+tests/test_kernel.py::TestSumoKernelBoot::test_context_manager
+tests/test_kernel.py::TestKernelRun::test_stream_run_returns_trace_and_steps
+tests/test_kernel.py::TestKernelRun::test_run_returns_trace
+tests/test_kernel.py::TestKernelRun::test_dry_run_no_tool_execution
+tests/test_kernel.py::TestKernelRun::test_chat_returns_string
+tests/test_kernel.py::TestKernelRun::test_ingest_returns_chunk_count
+  <string>:23: DeprecationWarning: chroma_path is deprecated, use chroma_base instead.
+
+tests/test_kernel.py::TestSumoKernelBoot::test_boot_with_mock_provider
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:50: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    kernel = SumoKernel(cfg)
+
+tests/test_kernel.py::TestSumoKernelBoot::test_context_manager
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:71: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    async with SumoKernel(cfg) as kernel:
+
+tests/test_kernel.py::TestExecutionTrace::test_trace_defaults
+  tests/test_kernel.py:78: PytestWarning: The test <Function test_trace_defaults> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_trace_defaults(self):
+
+tests/test_kernel.py::TestExecutionTrace::test_failed_steps_filter
+  tests/test_kernel.py:93: PytestWarning: The test <Function test_failed_steps_filter> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_failed_steps_filter(self):
+
+tests/test_kernel.py::TestExecutionTrace::test_tool_outputs
+  tests/test_kernel.py:110: PytestWarning: The test <Function test_tool_outputs> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_tool_outputs(self):
+
+tests/test_kernel.py::TestKernelRun::test_stream_run_returns_trace_and_steps
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:132: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    kernel = SumoKernel(cfg)
+
+tests/test_kernel.py::TestKernelRun::test_run_returns_trace
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:177: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    kernel = SumoKernel(fast_config(tmp_path, tmp_chroma))
+
+tests/test_kernel.py::TestKernelRun::test_dry_run_no_tool_execution
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:196: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    kernel = SumoKernel(cfg)
+
+tests/test_kernel.py::TestKernelRun::test_chat_returns_string
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:213: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    kernel = SumoKernel(fast_config(tmp_path, tmp_chroma))
+
+tests/test_kernel.py::TestKernelRun::test_ingest_returns_chunk_count
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:230: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    kernel = SumoKernel(fast_config(tmp_path, tmp_chroma))
+
+tests/test_tools.py::TestToolRegistry::test_list_tools
+  /mnt/data/projects/ardupilot/venv/lib/python3.11/site-packages/_pytest/unraisableexception.py:67: PytestUnraisableExceptionWarning: Exception ignored in: <function BaseSubprocessTransport.__del__ at 0x7fa05dbfb6a0>
+  
+  Traceback (most recent call last):
+    File "/home/omdeep-borkar/.pyenv/versions/3.11.4/lib/python3.11/asyncio/base_subprocess.py", line 126, in __del__
+      self.close()
+    File "/home/omdeep-borkar/.pyenv/versions/3.11.4/lib/python3.11/asyncio/base_subprocess.py", line 104, in close
+      proto.pipe.close()
+    File "/home/omdeep-borkar/.pyenv/versions/3.11.4/lib/python3.11/asyncio/unix_events.py", line 566, in close
+      self._close(None)
+    File "/home/omdeep-borkar/.pyenv/versions/3.11.4/lib/python3.11/asyncio/unix_events.py", line 590, in _close
+      self._loop.call_soon(self._call_connection_lost, exc)
+    File "/home/omdeep-borkar/.pyenv/versions/3.11.4/lib/python3.11/asyncio/base_events.py", line 761, in call_soon
+      self._check_closed()
+    File "/home/omdeep-borkar/.pyenv/versions/3.11.4/lib/python3.11/asyncio/base_events.py", line 519, in _check_closed
+      raise RuntimeError('Event loop is closed')
+  RuntimeError: Event loop is closed
+  
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+    warnings.warn(pytest.PytestUnraisableExceptionWarning(msg))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_scope.py::TestConcurrentLock::test_concurrent_ingest_does_not_corrupt
+============ 1 failed, 268 passed, 29 warnings in 809.22s (0:13:29) ============

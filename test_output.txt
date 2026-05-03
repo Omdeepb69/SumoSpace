@@ -1,0 +1,35 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.4, pytest-9.0.2, pluggy-1.6.0 -- /mnt/data/projects/ardupilot/venv/bin/python3
+cachedir: .pytest_cache
+rootdir: /mnt/data/projects/sumospace/sumospace
+configfile: pyproject.toml
+plugins: cov-7.1.0, asyncio-1.3.0, anyio-4.12.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/test_kernel.py::TestKernelRun::test_stream_run_returns_trace_and_steps FAILED [100%]
+
+=================================== FAILURES ===================================
+____________ TestKernelRun.test_stream_run_returns_trace_and_steps _____________
+tests/test_kernel.py:168: in test_stream_run_returns_trace_and_steps
+    assert len(events) >= 2
+E   AssertionError: assert 1 >= 2
+E    +  where 1 = len([ExecutionTrace(task='List files', session_id='8492d5184391', intent=<Intent.GENERAL_QA: 'general_qa'>, classification=ClassificationResult(intent=<Intent.GENERAL_QA: 'general_qa'>, confidence=1.0, needs_execution=True, needs_web=False, needs_retrieval=False, reasoning='', entities={}), plan=None, step_traces=[], final_answer='', success=True, error='', duration_ms=237.59569199864927, rag_context='')])
+----------------------------- Captured stderr call -----------------------------
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 7228.68it/s]
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 6338.31it/s]
+------------------------------ Captured log call -------------------------------
+WARNING  huggingface_hub.utils._http:_http.py:857 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+=============================== warnings summary ===============================
+tests/test_kernel.py::TestKernelRun::test_stream_run_returns_trace_and_steps
+  <string>:23: DeprecationWarning: chroma_path is deprecated, use chroma_base instead.
+
+tests/test_kernel.py::TestKernelRun::test_stream_run_returns_trace_and_steps
+  /mnt/data/projects/sumospace/sumospace/tests/test_kernel.py:132: DeprecationWarning: Passing KernelConfig directly is deprecated. Use SumoSettings instead: SumoKernel(settings=SumoSettings(...)). KernelConfig support will be removed in v1.0.
+    kernel = SumoKernel(cfg)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_kernel.py::TestKernelRun::test_stream_run_returns_trace_and_steps
+======================== 1 failed, 2 warnings in 25.55s ========================

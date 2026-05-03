@@ -7,7 +7,7 @@ from sumospace.classifier import ClassificationResult, Intent
 
 @pytest.fixture
 def mock_kernel():
-    settings = SumoSettings(provider="hf", dry_run=True)
+    settings = SumoSettings(provider="hf", dry_run=False)
     kernel = SumoKernel(settings=settings)
     
     # The kernel's subsystems are None until boot(). Assign mocks directly.

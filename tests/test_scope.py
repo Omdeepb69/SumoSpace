@@ -352,9 +352,9 @@ class TestQuotaExceeded:
         assert "120" in str(err)
 
     def test_quota_error_is_sumo_error(self):
-        from sumospace.exceptions import QuotaExceededError, SumoError
+        from sumospace.exceptions import QuotaExceededError, SumoSpaceError
         err = QuotaExceededError(current=10, attempted=5, limit=12)
-        assert isinstance(err, SumoError)
+        assert isinstance(err, SumoSpaceError)
 
     @pytest.mark.asyncio
     async def test_ingestor_raises_quota_exceeded(self, tmp_path):

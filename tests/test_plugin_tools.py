@@ -74,6 +74,7 @@ def test_discover_plugins(mock_entry_points):
     mock_eps = MagicMock()
     mock_eps.select.return_value = [MockEntryPoint()]
     mock_eps.get.return_value = [MockEntryPoint()]
+    mock_eps.__iter__.return_value = [MockEntryPoint()]
     mock_entry_points.return_value = mock_eps
     
     registry = ToolRegistry()

@@ -127,8 +127,8 @@ class TestExecutionTrace:
 
 @pytest.mark.asyncio
 class TestKernelRun:
-    async def _make_kernel(self, tmp_path, tmp_chroma, mock_provider):
-        cfg = fast_config(tmp_path, tmp_chroma)
+    async def _make_kernel(self, tmp_path, tmp_chroma, mock_provider, cfg=None):
+        cfg = cfg or fast_config(tmp_path, tmp_chroma)
         kernel = SumoKernel(cfg)
         with patch("sumospace.kernel.ProviderRouter") as MockRouter:
             instance = MagicMock()
@@ -140,7 +140,27 @@ class TestKernelRun:
         return kernel
 
     async def test_stream_run_returns_trace_and_steps(self, tmp_path, tmp_chroma, mock_provider):
-        kernel = await self._make_kernel(tmp_path, tmp_chroma, mock_provider)
+        cfg = fast_config(tmp_path, tmp_chroma)
+        cfg.dry_run = False
+        cfg.require_consensus = True
+        kernel = await self._make_kernel(tmp_path, tmp_chroma, mock_provider, cfg=cfg)
+        
+        # Mock classifier to ensure execution is triggered
+        from sumospace.classifier import ClassificationResult, Intent
+        kernel._classifier.classify = AsyncMock(return_value=ClassificationResult(
+            intent=Intent.GENERAL_QA, confidence=1.0, needs_execution=True, 
+            needs_web=False, needs_retrieval=False
+        ))
+        
+        # Mock committee to return a plan with steps
+        from sumospace.committee import CommitteeVerdict, ExecutionPlan, ExecutionStep
+        mock_plan = ExecutionPlan(task="List files", steps=[
+            ExecutionStep(1, "shell", "list files", {"command": "ls"})
+        ])
+        kernel._committee.deliberate = AsyncMock(return_value=CommitteeVerdict(
+            approved=True, plan=mock_plan, planner_output="mock",
+            critic_output="mock", resolver_output="mock"
+        ))
         
         events = []
         async for event in kernel.stream_run("List files"):

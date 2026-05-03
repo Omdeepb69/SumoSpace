@@ -566,29 +566,35 @@ class ToolRegistry:
         self._tools: dict[str, BaseTool] = {}
         self._workspace = workspace
         self._register_defaults()
-        self._discover_plugins()
 
     def _discover_plugins(self):
         """Auto-load tools registered via entry points."""
         try:
             from importlib.metadata import entry_points
-            # Handle both Python 3.8+ and 3.10+ entry_points API
-            eps = entry_points()
-            if hasattr(eps, "select"):
-                eps = eps.select(group="sumospace.tools")
-            else:
-                eps = eps.get("sumospace.tools", [])
-                
+            from rich.console import Console
+            console = Console()
+            
+            # entry_points(group=...) is Python 3.10+
+            try:
+                eps = entry_points(group="sumospace.tools")
+            except TypeError:
+                # Fallback for Python 3.8/3.9
+                eps = entry_points().get("sumospace.tools", [])
+
             for ep in eps:
                 try:
                     tool_cls = ep.load()
-                    self.register(tool_cls())
+                    instance = tool_cls()
+                    if not isinstance(instance, BaseTool):
+                        raise TypeError(f"{tool_cls} is not a BaseTool subclass")
+                    self.register(instance)
+                    console.print(f"[dim]Plugin loaded: {ep.name} ({ep.value})[/dim]")
                 except Exception as e:
-                    from rich.console import Console
-                    console = Console()
-                    console.print(f"[yellow]Plugin load failed: {ep.name}: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Plugin '{ep.name}' failed to load: {e}[/yellow]"
+                    )
         except Exception:
-            pass
+            pass  # importlib.metadata unavailable — skip silently
 
     def _register_defaults(self):
         ws = self._workspace
@@ -602,6 +608,7 @@ class ToolRegistry:
         self.register(FetchURLTool())
         self.register(DockerTool(workspace=ws))
         self.register(DependencyTool(workspace=ws))
+        self._discover_plugins()
 
     def register(self, tool: BaseTool):
         self._tools[tool.name] = tool
@@ -612,10 +619,6 @@ class ToolRegistry:
     def list_tools(self) -> list[dict[str, str]]:
         return [{"name": t.name, "description": t.description} for t in self._tools.values()]
 
-    def execute(self, name: str, **kwargs) -> Any:
-        # Compatibility wrapper for async code calling execute.
-        # It's an async function actually.
-        pass
 
     async def execute(self, name: str, **kwargs) -> ToolResult:
         tool = self.get(name)

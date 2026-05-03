@@ -1,42 +1,42 @@
 # sumospace/exceptions.py
 
 
-class SumoError(Exception):
-    """Base exception for all Sumospace errors."""
+class SumoSpaceError(Exception):
+    """Base exception for all SumoSpace errors."""
 
 
-class KernelBootError(SumoError):
+class KernelBootError(SumoSpaceError):
     """Raised when kernel fails to initialize."""
 
 
-class ExecutionHaltedError(SumoError):
+class ExecutionHaltedError(SumoSpaceError):
     """Raised when a critical tool step fails."""
 
 
-class ConsensusFailedError(SumoError):
+class ConsensusFailedError(SumoSpaceError):
     """Raised when the committee rejects an execution plan."""
 
 
-class ProviderError(SumoError):
+class ProviderError(SumoSpaceError):
     """Raised when a model provider call fails."""
 
 
-class IngestError(SumoError):
+class IngestError(SumoSpaceError):
     """Raised during file ingestion."""
 
 
-class ToolError(SumoError):
+class ToolError(SumoSpaceError):
     """Raised when a tool execution fails."""
 
 
-class ProviderNotConfiguredError(SumoError):
+class ProviderNotConfiguredError(SumoSpaceError):
     """
     Raised when a cloud provider is used without the required API key or package.
     Provides clear install + key setup instructions in the message.
     """
 
 
-class QuotaExceededError(SumoError):
+class QuotaExceededError(SumoSpaceError):
     """
     Raised when chunk ingestion would exceed the configured max_chunks quota.
     Contains current count, attempted addition, and the limit.

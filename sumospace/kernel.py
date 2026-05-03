@@ -181,7 +181,14 @@ class SumoKernel:
             )
             import dataclasses
             from sumospace.settings import SumoSettings
-            self.settings = SumoSettings(**dataclasses.asdict(config))
+            data = dataclasses.asdict(config)
+            # Map deprecated flags to new settings
+            if "require_consensus" in data:
+                data["committee_enabled"] = data["require_consensus"]
+            if "dry_run" in data:
+                data["execution_enabled"] = not data["dry_run"]
+            
+            self.settings = SumoSettings(**data)
         elif settings is not None:
             self.settings = settings
         else:
@@ -457,6 +464,9 @@ class SumoKernel:
                     max_tokens=self.settings.committee_max_tokens,
                 )
                 trace.final_answer = answer
+                if self.settings.dry_run or not self.settings.execution_enabled:
+                    prefix = "[DRY RUN]" if self.settings.dry_run else "[EXECUTION DISABLED]"
+                    trace.final_answer = f"{prefix} {trace.final_answer}"
                 trace.success = True
                 trace.plan = None
                 
@@ -662,6 +672,9 @@ class SumoKernel:
                     yield SynthesisChunk(chunk)
                 
                 trace.final_answer = "".join(answer_parts)
+                if self.settings.dry_run or not self.settings.execution_enabled:
+                    prefix = "[DRY RUN]" if self.settings.dry_run else "[EXECUTION DISABLED]"
+                    trace.final_answer = f"{prefix} {trace.final_answer}"
                 trace.success = True
                 trace.plan = None
                 

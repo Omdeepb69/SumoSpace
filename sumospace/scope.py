@@ -106,10 +106,7 @@ class ScopeManager:
         Returns an absolute-ish string path suitable for chromadb.PersistentClient(path=...).
         """
         if not user_id:
-            # No isolation — use shared default path
-            path = self.chroma_base / "default" / "persistent.db"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            return str(path)
+            raise ValueError("user_id required")
 
         if self.level == "user":
             path = self.chroma_base / "users" / user_id / "persistent.db"
