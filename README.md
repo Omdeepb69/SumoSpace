@@ -10,7 +10,7 @@ A locally-first, multi-agent autonomous task execution framework with zero cloud
 
 ## The 60-second pitch
 
-SumoSpace is a framework for building and running autonomous AI agents that operate entirely on your local machine. It provides a robust pipeline for task classification, RAG-enhanced context building, multi-agent deliberation, and safe tool execution. Unlike other frameworks, SumoSpace prioritizes privacy, speed, and deterministic control over your local environment.
+SumoSpace is a locally-first autonomous task execution framework designed for deterministic control over complex workflows. It provides a multi-agent deliberation pipeline (Planner → Critic → Resolver) that safely interacts with your local filesystem and tools, with full memory and RAG capabilities. Built with privacy and speed in mind, it operates entirely on your local machine with zero cloud dependencies required.
 
 ```bash
 pip install sumospace
@@ -27,13 +27,10 @@ async def main():
         )
         print(trace.final_answer)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
 ```
 
 ## Why SumoSpace
-
-SumoSpace is built for developers who need autonomous agents that stay local.
 
 | Capability | SumoSpace | LangChain | LlamaIndex | AutoGPT |
 |:---|:---:|:---:|:---:|:---:|
@@ -47,8 +44,8 @@ SumoSpace is built for developers who need autonomous agents that stay local.
 | **Learning Curve** | Moderate | Steep | Moderate | Low |
 | **Community Size** | Small | Massive | Large | Large |
 
-**Use SumoSpace when:** You need high-performance, private agents that interact with your local filesystem or internal APIs with a clean, unified interface.
-**Don't use SumoSpace when:** You need a massive library of 500+ pre-built integrations or are strictly building cloud-native SaaS applications where local execution isn't a requirement.
+**Use SumoSpace when:** You need autonomous, multi-agent planning and execution that runs entirely locally, interacting deeply with files, tools, and custom environments.
+**Don't use SumoSpace when:** You simply need to stitch together an enormous ecosystem of cloud integrations or prefer relying on prompt-engineered chains over defined agent topologies.
 
 ## Installation
 
@@ -56,23 +53,21 @@ SumoSpace is built for developers who need autonomous agents that stay local.
 # Minimal (Ollama or cloud providers only)
 pip install sumospace
 
-# With local HuggingFace inference (Transformers, Torch)
+# With local HuggingFace inference
 pip install sumospace[local]
 
 # With OpenTelemetry observability
 pip install sumospace[telemetry]
 
-# With cloud provider SDKs (Gemini, OpenAI, Anthropic)
+# With cloud provider SDKs
 pip install sumospace[cloud]
 
-# With desktop automation tools (PyAutoGUI)
+# With desktop automation tools
 pip install sumospace[desktop]
 
 # Everything
 pip install sumospace[all]
 ```
-
-### System Requirements
 
 | Provider | Python | RAM (Min) | GPU |
 |:---|:---:|:---:|:---:|
@@ -83,110 +78,95 @@ pip install sumospace[all]
 
 ## Core Concepts
 
-SumoSpace operates as a sequential pipeline where each stage refines the task execution.
-
 ```mermaid
 graph TD
     Input[Task Input] --> Classifier[Classifier]
     Classifier --> RAG[RAG + Web]
-    RAG --> Committee[Committee Deliberation]
+    RAG --> Committee[Committee]
     Committee --> Executor[Tool Executor]
     Executor --> Synthesis[Synthesis]
     Synthesis --> Output[Final Answer]
 ```
 
-1.  **Classifier**: Identifies the intent (e.g., coding, research, chat) and determines if the task needs RAG retrieval, web search, or specific toolsets.
-2.  **RAG + Web**: Retrieves relevant context from your ingested codebase or performs live web searches to ground the agent in reality.
-3.  **Committee**: A multi-agent deliberation phase (Planner → Critic → Resolver) that generates a safe, multi-step execution plan.
-4.  **Tool Executor**: Executes the approved plan steps sequentially (shell commands, file edits, etc.) with safety checks.
-5.  **Synthesis**: Combines the original task, the context, and the tool execution results into a clear final answer.
+1. **Classifier**: Identifies the intent of your task (coding, conversational, research) to intelligently toggle RAG, Web Search, or Committee deliberation.
+2. **RAG + Web**: Retrieves semantically relevant context from your ingested codebase and history, grounding the agents with accurate knowledge before planning.
+3. **Committee**: Planner, Critic, and Resolver agents deliberately analyze the request and negotiate a safe, actionable, multi-step execution plan.
+4. **Tool Executor**: Runs the approved steps against the host system (executing shell commands, patching files, reading web pages) while enforcing safety checks.
+5. **Synthesis**: Combines the original task intent, retrieved context, and tool output into a cohesive and complete final answer.
 
 ## Provider Configuration
 
-### Local Providers
-
 ```python
-# Ollama (Recommended)
+# Ollama (recommended for local development)
 SumoSettings(provider="ollama", model="phi3:mini")
+SumoSettings(provider="ollama", model="llama3:8b")
+SumoSettings(provider="ollama", model="deepseek-coder:6.7b")
 
-# HuggingFace (In-process)
+# HuggingFace (in-process, no server needed)
 SumoSettings(provider="hf", model="microsoft/Phi-3-mini-4k-instruct")
 SumoSettings(provider="hf", model="mistralai/Mistral-7B-Instruct-v0.2", hf_load_in_4bit=True)
 
-# vLLM (Production)
-SumoSettings(provider="vllm", vllm_base_url="http://localhost:8000", model="deepseek-coder")
+# vLLM (production GPU server)
+SumoSettings(provider="vllm", vllm_base_url="http://gpu-server:8000", model="deepseek-coder")
+
+# Cloud (opt-in)
+SumoSettings(provider="gemini", model="gemini-pro")   # needs GOOGLE_API_KEY
+SumoSettings(provider="openai", model="gpt-4o")       # needs OPENAI_API_KEY
+SumoSettings(provider="anthropic", model="claude-3-5-sonnet-20241022")  # needs ANTHROPIC_API_KEY
 ```
-
-### Cloud Providers (Opt-in)
-
-```python
-# Gemini
-SumoSettings(provider="gemini", model="gemini-1.5-flash") # Needs GOOGLE_API_KEY
-
-# OpenAI
-SumoSettings(provider="openai", model="gpt-4o") # Needs OPENAI_API_KEY
-
-# Anthropic
-SumoSettings(provider="anthropic", model="claude-3-5-sonnet-20241022") # Needs ANTHROPIC_API_KEY
-```
-
-### Environment Variables
-
-You can also configure SumoSpace via environment variables:
 
 ```bash
 export SUMO_PROVIDER=ollama
 export SUMO_MODEL=phi3:mini
-export SUMO_OLLAMA_BASE_URL=http://localhost:11434
-sumo run "Explain the codebase"
+sumo run "your task here"
 ```
 
 ## Inference Modes & Presets
 
-SumoSpace provides presets to quickly configure the agent for specific use cases.
+| Preset | Description |
+|:---|:---|
+| `chat` | Direct conversation, no committee, no RAG. (`--preset chat`) |
+| `chat-with-context` | Chat with codebase RAG enabled. (`--preset chat-with-context`) |
+| `stateless` | Pure stateless single-turn inference, no memory. (`--preset stateless`) |
+| `coding` | Full pipeline optimised for code tasks with tools. (`--preset coding`) |
+| `research` | Planning + web search, no code execution. (`--preset research`) |
+| `review` | Plan and critique only — never executes tools. (`--preset review`) |
 
-| Preset | Description | CLI Flag |
-|:---|:---|:---|
-| `chat` | Direct conversation, no committee, no RAG. | `--preset chat` |
-| `chat-with-context` | Chat with codebase RAG enabled. | `--preset chat-with-context` |
-| `coding` | Full committee + filesystem tools. | `--preset coding` |
-| `research` | Web search enabled + plan-only mode. | `--preset research` |
-| `review` | Critique-only mode for analysis. | `--preset review` |
-| `stateless` | No memory writes or retrieval. | `--preset stateless` |
+```python
+SumoSettings.for_coding(provider="ollama", model="phi3:mini")
+```
 
-### Committee Modes
-
-| Mode | Planner | Critic | Resolver | Use When |
+| Mode | Planner | Critic | Resolver | Use when |
 |:---|:---:|:---:|:---:|:---|
-| `full` | ✓ | ✓ | ✓ | Default, high-safety tasks. |
-| `plan_only` | ✓ | ✗ | ✗ | Speed over safety. |
-| `critique_only` | ✓ | ✓ | ✗ | Balanced validation. |
-| `disabled` | ✗ | ✗ | ✗ | Direct Q&A or Chat. |
+| `full` | ✓ | ✓ | ✓ | Default, safest |
+| `plan_only` | ✓ | ✗ | ✗ | Speed over safety |
+| `critique_only` | ✓ | ✓ | ✗ | Balanced |
+| `disabled` | ✗ | ✗ | ✗ | Chat, Q&A |
 
 ## Tools
 
-SumoSpace comes with a powerful set of built-in tools.
+SumoSpace provides comprehensive built-in tools for agents to operate natively on your machine.
 
-### Filesystem
-- `read_file`: Read contents of a file.
-- `write_file`: Create or overwrite a file.
-- `list_directory`: List files with recursive support.
-- `search_files`: Regex search across the workspace.
-- `patch_file`: Apply unified diffs.
+**Filesystem**
+- `read_file`: Read the contents of a file (e.g. `path="./src/main.py"`)
+- `write_file`: Write content to a file, creating directories as needed
+- `list_directory`: List files in a directory, optionally filtered
+- `search_files`: Search for a pattern in files
+- `patch_file`: Apply a unified diff patch
 
-### Code & Shell
-- `shell`: Run bash commands with timeout and safety blocks.
-- `dependencies`: Manage pip/npm packages.
-- `docker`: Build and run containers.
+**Code & Shell**
+- `shell`: Run a shell command with timeout
+- `dependencies`: Install, update, or inspect packages
 
-### Web & Desktop
-- `web_search`: Zero-config DuckDuckGo search.
-- `fetch_url`: Convert any webpage to markdown.
-- `browser`: Full Playwright automation (optional).
+**Docker**
+- `docker`: Run Docker CLI commands (build, run, exec, ps, compose)
 
-### Custom Tools
+**Web & Desktop**
+- `web_search`: Search the web using DuckDuckGo (no API key required)
+- `fetch_url`: Fetch the text content of a web page
+- `browser`: Automate browser interactions (requires `sumospace[desktop]`)
 
-Creating a custom tool is simple:
+Creating a custom tool:
 
 ```python
 from sumospace.tools import BaseTool, ToolResult
@@ -195,6 +175,7 @@ from typing import ClassVar
 class PostgresTool(BaseTool):
     name = "postgres_query"
     description = "Execute a read-only SQL query against PostgreSQL."
+    tags: ClassVar[list[str]] = ["database", "sql", "read"]
     schema: ClassVar[dict] = {
         "type": "object",
         "properties": {
@@ -204,11 +185,12 @@ class PostgresTool(BaseTool):
     }
 
     async def run(self, query: str, **_) -> ToolResult:
-        # Implementation here
-        return ToolResult(tool=self.name, success=True, output="Result data")
+        # your implementation
+        ...
 ```
 
-Register it via entry points in your `pyproject.toml`:
+Register it via entry points in `pyproject.toml` so SumoSpace loads it automatically:
+
 ```toml
 [project.entry-points."sumospace.tools"]
 postgres = "my_package.tools:PostgresTool"
@@ -216,144 +198,229 @@ postgres = "my_package.tools:PostgresTool"
 
 ## Memory & RAG
 
-SumoSpace can ingest your entire codebase to provide context-aware answers.
-
 ```python
+from sumospace import SumoKernel, SumoSettings
+
 async with SumoKernel(SumoSettings()) as kernel:
-    # Ingest once
+    # Ingest your codebase once
     await kernel.ingest("./src")
-    
-    # Context-aware run
-    trace = await kernel.run("How does the authentication flow work?")
+    await kernel.ingest("./docs")
+
+    # Now all runs have codebase context
+    trace = await kernel.run("Find all authentication-related functions")
 ```
 
-**CLI Ingestion:**
 ```bash
-sumo ingest ./src --recursive
-sumo run "Where is the kernel initialized?"
+sumo ingest ./src
+sumo ingest ./docs --recursive
+sumo run "Explain the authentication flow"
 ```
 
 ## Multi-User Deployment
 
-SumoSpace is designed for isolation. Use the `async with` pattern to ensure resource cleanup.
-
 ```python
 from fastapi import FastAPI
 from sumospace import SumoKernel, SumoSettings
+from pydantic import BaseModel
 
 app = FastAPI()
 
+class RunRequest(BaseModel):
+    task: str
+    user_id: str
+
 @app.post("/run")
-async def run_task(task: str, user_id: str):
-    settings = SumoSettings.for_coding(user_id=user_id, scope_level="user")
-    async with SumoKernel(settings) as kernel:
-        trace = await kernel.run(task)
-    return {"answer": trace.final_answer}
+async def run_task(request: RunRequest):
+    # Per-request kernel — proper isolation, no shared state
+    settings = SumoSettings.for_coding(
+        provider="ollama",
+        user_id=request.user_id,
+        scope_level="user",
+    )
+    async with SumoKernel(settings=settings) as kernel:
+        trace = await kernel.run(request.task)
+    return {
+        "answer": trace.final_answer,
+        "success": trace.success,
+        "steps": len(trace.step_traces),
+    }
 ```
+
+By initializing `SumoSettings` with different `scope_level` and `user_id` values, agents execute within strict isolation boundaries preventing data crossover. Releasing the `async with` block ensures ChromaDB file locks are released securely.
 
 ## Lifecycle Hooks
 
-Intercept and modify the agent's behavior at key events.
-
 ```python
 from sumospace.hooks import HookRegistry
+
 hooks = HookRegistry()
 
 @hooks.on("on_plan_approved")
-async def manual_gate(plan, verdict):
-    print(f"Agent wants to run: {plan.steps}")
-    if input("Approve? [y/N]: ") != "y":
-        raise Exception("Aborted by user")
+async def require_approval(plan, verdict):
+    print(f"\nAgent wants to execute {len(plan.steps)} steps:")
+    for step in plan.steps:
+        print(f"  {step.step_number}. [{step.tool}] {step.description}")
+    if input("\nApprove? [y/N]: ").strip().lower() != "y":
+        raise Exception("User rejected plan")
 
-@hooks.on("on_task_complete")
-async def log_completion(trace):
-    print(f"Task finished in {trace.duration_ms}ms")
-
-kernel = SumoKernel(hooks=hooks)
+kernel = SumoKernel(settings=settings, hooks=hooks)
 ```
+
+```python
+@hooks.on("on_task_complete")
+async def notify_slack(trace):
+    status = "✅" if trace.success else "❌"
+    await slack_client.chat_postMessage(
+        channel="#ai-agent",
+        text=f"{status} Task complete in {trace.duration_ms:.0f}ms: {trace.final_answer[:200]}"
+    )
+```
+
+```python
+@hooks.on("on_task_complete")
+def track_cost(trace):
+    metrics.increment("agent.tasks.total")
+    metrics.histogram("agent.tasks.duration_ms", trace.duration_ms)
+    metrics.increment(f"agent.tasks.intent.{trace.intent.value}")
+```
+
+Available hooks: `on_run_start`, `on_run_complete`, `on_run_error`, `on_intent_classified`, `on_plan_generated`, `on_plan_approved`, `on_plan_rejected`, `on_step_start`, `on_step_complete`, `on_task_complete`.
 
 ## Streaming
 
-Get real-time feedback from the agent as it thinks and acts.
-
 ```python
-async for event in kernel.stream_run("Refactor auth.py"):
-    if isinstance(event, StepTrace):
-        print(f"Action: {event.description}")
-    elif isinstance(event, SynthesisChunk):
-        print(event.token, end="", flush=True)
+from sumospace.kernel import StepTrace, ExecutionTrace, SynthesisChunk
+
+async with SumoKernel(settings) as kernel:
+    async for event in kernel.stream_run("Refactor auth.py to use async/await"):
+        if isinstance(event, StepTrace):
+            status = "✓" if event.result.success else "✗"
+            print(f"  [{status}] {event.tool}: {event.description}")
+        elif isinstance(event, SynthesisChunk):
+            print(event.token, end="", flush=True)  # Real-time token output
+        elif isinstance(event, ExecutionTrace):
+            print(f"\n\nCompleted in {event.duration_ms:.0f}ms")
 ```
 
 ## Observability
 
-SumoSpace has built-in audit logging and OpenTelemetry support.
+```bash
+sumo logs list
+sumo logs show e9f2a7a4
+sumo logs search "refactor"
+```
 
 ```python
 settings = SumoSettings(
     telemetry_enabled=True,
-    telemetry_endpoint="http://localhost:4317"
+    telemetry_endpoint="http://jaeger:4317",
 )
-```
-
-**CLI Audit:**
-```bash
-sumo logs list --failed
-sumo logs show <session-id>
-sumo replay <session-id>
 ```
 
 ## Configuration Reference
 
 | Field | Type | Default | Env Var | Description |
 |:---|:---|:---|:---|:---|
-| `provider` | `str` | `"ollama"` | `SUMO_PROVIDER` | Inference provider (ollama, hf, vllm, etc.) |
-| `model` | `str` | `"phi3:mini"` | `SUMO_MODEL` | Model identifier |
-| `temperature` | `float` | `0.1` | `SUMO_TEMPERATURE` | Generation temperature |
-| `committee_enabled`| `bool` | `True` | `SUMO_COMMITTEE_ENABLED`| Enable multi-agent deliberation |
-| `rag_enabled` | `bool` | `True` | `SUMO_RAG_ENABLED` | Enable RAG context retrieval |
-| `memory_enabled` | `bool` | `True` | `SUMO_MEMORY_ENABLED` | Enable episodic memory |
-| `shell_sandbox` | `bool` | `False` | `SUMO_SHELL_SANDBOX` | Use sandbox for shell tools |
-| `audit_log_enabled`| `bool` | `True` | `SUMO_AUDIT_LOG_ENABLED`| Persist session traces to disk |
-| `telemetry_enabled`| `bool` | `False` | `SUMO_TELEMETRY_ENABLED`| Export spans via OpenTelemetry |
+| `provider` | `str` | `"hf"` | `SUMO_PROVIDER` | Inference provider (ollama, hf, vllm, etc.) |
+| `model` | `str` | `"default"` | `SUMO_MODEL` | Model identifier |
+| `embedding_provider` | `str` | `"local"` | `SUMO_EMBEDDING_PROVIDER` | Provider for embeddings |
+| `embedding_model` | `str` | `"BAAI/bge-base-en-v1.5"` | `SUMO_EMBEDDING_MODEL` | Embedding model |
+| `require_consensus` | `bool` | `True` | `SUMO_REQUIRE_CONSENSUS` | Require committee consensus |
+| `committee_enabled` | `bool` | `True` | `SUMO_COMMITTEE_ENABLED` | Enable multi-agent deliberation |
+| `committee_mode` | `Literal["full", "plan_only", "critique_only"]` | `"full"` | `SUMO_COMMITTEE_MODE` | Controls which committee agents run |
+| `committee_temperature` | `float` | `0.1` | `SUMO_COMMITTEE_TEMPERATURE` | Planner temperature |
+| `committee_max_tokens` | `int` | `2048` | `SUMO_COMMITTEE_MAX_TOKENS` | Max tokens for planning |
+| `execution_enabled` | `bool` | `True` | `SUMO_EXECUTION_ENABLED` | Allow tools to execute |
+| `rag_enabled` | `bool` | `True` | `SUMO_RAG_ENABLED` | Enable vector store retrieval |
+| `rag_top_k_final` | `int` | `5` | `SUMO_RAG_TOP_K_FINAL` | Number of chunks to return |
+| `memory_enabled` | `bool` | `True` | `SUMO_MEMORY_ENABLED` | Enable episodic memory read and write |
+| `shell_sandbox` | `bool` | `True` | `SUMO_SHELL_SANDBOX` | Use sandbox for shell tools |
+| `max_retries` | `int` | `3` | `SUMO_MAX_RETRIES` | Max retries for failed tool calls |
+| `execution_timeout` | `int` | `120` | `SUMO_EXECUTION_TIMEOUT` | Timeout for tool execution |
+| `verbose` | `bool` | `True` | `SUMO_VERBOSE` | Enable detailed logging |
+| `dry_run` | `bool` | `False` | `SUMO_DRY_RUN` | Simulate execution |
+| `hf_load_in_4bit` | `bool` | `False` | `SUMO_HF_LOAD_IN_4BIT` | Load HF models in 4-bit quantization |
+| `secondary_provider` | `Optional[str]` | `None` | `SUMO_SECONDARY_PROVIDER` | Fallback provider |
+| `secondary_model` | `Optional[str]` | `None` | `SUMO_SECONDARY_MODEL` | Fallback model |
+| `workspace` | `str` | `"."` | `SUMO_WORKSPACE` | Working directory |
+| `scope_level` | `str` | `"user"` | `SUMO_SCOPE_LEVEL` | Multi-tenant scope level |
+| `user_id` | `str` | `""` | `SUMO_USER_ID` | Identifier for user scope |
+| `session_id` | `str` | `""` | `SUMO_SESSION_ID` | Identifier for session scope |
+| `project_id` | `str` | `""` | `SUMO_PROJECT_ID` | SUMO_PROJECT_ID |
+| `chroma_base` | `str` | `".sumo_db"` | `SUMO_CHROMA_BASE` | Directory for ChromaDB |
+| `max_chunks_per_scope` | `Optional[int]` | `None` | `SUMO_MAX_CHUNKS_PER_SCOPE` | RAG limits |
+| `prompt_template_path` | `Optional[str]` | `None` | `SUMO_PROMPT_TEMPLATE_PATH` | Directory containing custom prompt .txt files |
+| `auto_load_hooks` | `bool` | `False` | `SUMO_AUTO_LOAD_HOOKS` | Automatically load hooks from .sumo_hooks.py |
+| `hooks_module` | `Optional[str]` | `None` | `SUMO_HOOKS_MODULE` | Path or dotted module to load hooks from |
+| `telemetry_enabled` | `bool` | `False` | `SUMO_TELEMETRY_ENABLED` | Export spans via OpenTelemetry |
+| `telemetry_endpoint` | `str` | `"http://localhost:4317"` | `SUMO_TELEMETRY_ENDPOINT` | OTLP endpoint |
 
 ## CLI Reference
 
 ```bash
-sumo run <task>         # Run a task
-sumo ingest <path>      # Ingest files for RAG
-sumo watch <path> <task># Run task on file change
-sumo logs list          # View session history
-sumo replay <id>        # Replay a session step-by-step
+sumo run <task>         [--provider] [--model] [--preset] [--no-committee]
+                        [--plan-only] [--no-rag] [--dry-run] [--verbose]
+
+sumo ingest <path>      [--recursive] [--force] [--provider]
+
+sumo watch <path> <task> [--debounce] [--ext] [--provider]
+
+sumo logs list          [--last N] [--failed]
+sumo logs show <id>
+sumo logs search <query>
+sumo logs export <id>
+sumo logs stats
+
+sumo replay <session-id>
 ```
 
 ## Architecture
 
-- `kernel.py`: Main orchestrator.
-- `committee.py`: Multi-agent planning logic.
-- `providers.py`: LLM abstraction layer.
-- `tools.py`: Tool definitions and discovery.
-- `rag.py`: Retrieval and embedding management.
-- `audit.py`: Session persistence and stats.
-- `hooks.py`: Event-driven extension system.
+- `sumospace/`
+  - `kernel.py` — SumoKernel — main orchestrator
+  - `settings.py` — SumoSettings — all configuration
+  - `committee.py` — PlannerAgent, CriticAgent, ResolverAgent
+  - `providers.py` — ProviderRouter, BaseProvider, all providers
+  - `tools.py` — BaseTool, ToolRegistry, all built-in tools
+  - `classifier.py` — RuleBasedClassifier, LLMClassifier
+  - `rag.py` — RAGEngine, retrieval and reranking
+  - `memory.py` — MemoryManager, working + episodic memory
+  - `ingest.py` — UniversalIngestor, file loaders, chunking
+  - `scope.py` — ScopeManager, multi-tenant isolation
+  - `audit.py` — AuditLogger, session persistence, stats
+  - `telemetry.py` — SumoTelemetry, OpenTelemetry integration
+  - `hooks.py` — HookRegistry, lifecycle events
+  - `templates.py` — TemplateManager, prompt customization
+  - `cli.py` — Typer CLI application
+  - `exceptions.py` — SumoSpaceError hierarchy
 
 ## Contributing
 
 We welcome contributions! See `CONTRIBUTING.md` for details.
 1. Fork the repo.
 2. `pip install -e ".[dev]"`
-3. Add your tool/provider.
-4. `pytest tests/`
+3. Add your tool (subclass `BaseTool`) or provider (subclass `BaseProvider`).
+4. `pytest tests/` (requires 75%+ coverage).
 5. Submit a PR.
 
 ## Roadmap
 
-- **v0.2**: Plugin marketplace, hosted API docs, LangChain tool adapter.
-- **v0.3**: Distributed task queue, Multi-modal support, Agent-to-agent kernels.
+v0.2 — Ecosystem
+  [ ] Plugin entry point marketplace
+  [ ] MkDocs hosted API reference
+  [ ] LangChain tool adapter (use LC tools in SumoSpace)
+  [ ] Jupyter notebook integration
+
+v0.3 — Scale  
+  [ ] Distributed task queue (Celery/Redis backend)
+  [ ] Multi-modal tool support (image input/output)
+  [ ] Agent-to-agent communication (nested kernels)
+  [ ] Web UI dashboard for sumo logs
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE) for details.
 
 ## Acknowledgements
 
-Built on top of [ChromaDB](https://www.trychroma.com/), [Ollama](https://ollama.ai/), [vLLM](https://github.com/vllm-project/vllm), [HuggingFace](https://huggingface.co/), [Pydantic](https://docs.pydantic.dev/), and [Rich](https://github.com/Textualize/rich).
+Built on top of [ChromaDB](https://www.trychroma.com/), [HuggingFace Transformers](https://huggingface.co/), [Ollama](https://ollama.ai/), [vLLM](https://github.com/vllm-project/vllm), [Pydantic](https://docs.pydantic.dev/), [Typer](https://typer.tiangolo.com/), [Rich](https://github.com/Textualize/rich), and [OpenTelemetry](https://opentelemetry.io/).

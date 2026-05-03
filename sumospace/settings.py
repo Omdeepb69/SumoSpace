@@ -67,7 +67,10 @@ class SumoSettings(BaseSettings):
         True,
         description="If False, disables episodic memory read and write. Each run is completely stateless."
     )
-    shell_sandbox: bool = False
+    shell_sandbox: bool = Field(
+        True,
+        description="If True, runs shell commands in a restricted sandbox."
+    )
     
     max_retries: int = 3
     execution_timeout: int = 120
