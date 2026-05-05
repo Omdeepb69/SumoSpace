@@ -216,6 +216,47 @@ sumo ingest ./docs --recursive
 sumo run "Explain the authentication flow"
 ```
 
+## Multimodal RAG
+
+SumoSpace supports searching and retrieving across text, images, audio, and video files as first-class citizens. By default, these features are disabled to keep the module completely lightweight. All heavy machine learning dependencies (CLIP, Whisper, BLIP) are lazy-loaded—meaning if you don't use them, you don't pay any performance or memory cost.
+
+### Installation
+
+To enable multimodal support, install the optional extra:
+
+```bash
+pip install sumospace[multimodal]
+# Or for 4x faster audio transcription:
+pip install sumospace[multimodal-fast]
+```
+
+### Usage
+
+Enable it in your settings:
+
+```python
+from sumospace import SumoKernel, SumoSettings
+
+settings = SumoSettings(multimodal_enabled=True)
+
+async with SumoKernel(settings) as kernel:
+    # Ingests documents, images, audio, and video
+    await kernel.ingest_multimodal("./my_media_folder")
+
+    # Search with a text query -> Finds text, images (cross-modal), and audio transcripts
+    results = await kernel.search_multimodal("a picture of a cat")
+
+    # Search with an image -> Finds visually similar images and video frames
+    image_results = await kernel.search_multimodal("./query_image.jpg")
+```
+
+Or via CLI:
+
+```bash
+sumo ingest-all ./my_media_folder
+sumo search "a picture of a cat"
+sumo search ./query_image.jpg
+```
 ## Multi-User Deployment
 
 ```python

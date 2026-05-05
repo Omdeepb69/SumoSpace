@@ -69,8 +69,23 @@ desktop = [
     "pyautogui>=0.9",
     "pillow>=10.0",
 ]
+media = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "torchaudio>=2.0",
+    "transformers>=4.35",
+    "openai-whisper>=20231117",
+    "opencv-python>=4.8",
+    "Pillow>=10.0",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+]
+media-fast = [
+    "sumospace[media]",
+    "faster-whisper>=0.10",
+]
 all = [
-    "sumospace[local,telemetry,cloud,desktop]",
+    "sumospace[local,telemetry,cloud,desktop,media]",
 ]
 dev = [
     "pytest>=7.0",

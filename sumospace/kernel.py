@@ -984,6 +984,34 @@ class SumoKernel:
             result = await self._ingestor.ingest_file(path)
             return result.chunks_created
 
+    async def ingest_media(self, path: str, force: bool = False) -> list[Any]:
+        """
+        Ingest text, images, audio, or video.
+        Requires settings.media_enabled = True.
+        """
+        if not self.settings.media_enabled:
+            raise ValueError("Media features are disabled. Set media_enabled=True in settings.")
+        if not self._initialized:
+            await self.boot()
+        
+        from sumospace.media_ingest import MediaIngestor
+        ingestor = MediaIngestor(self.settings)
+        return ingestor.ingest_path(path, force=force)
+
+    async def search_media(self, query: str, top_k: int = 3) -> list[Any]:
+        """
+        Search across all modalities. Query can be text, or path to image/audio/video.
+        Requires settings.media_enabled = True.
+        """
+        if not self.settings.media_enabled:
+            raise ValueError("Media features are disabled. Set media_enabled=True in settings.")
+        if not self._initialized:
+            await self.boot()
+            
+        from sumospace.media_search import MediaSearchEngine
+        engine = MediaSearchEngine(self.settings)
+        return engine.search(query, top_k=top_k)
+
     async def recall(self, query: str, top_k: int = 5):
         """Direct semantic recall from memory."""
         if not self._initialized:

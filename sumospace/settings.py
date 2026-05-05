@@ -90,6 +90,53 @@ class SumoSettings(BaseSettings):
     chroma_base: str = ".sumo_db"
     max_chunks_per_scope: Optional[int] = None
 
+    # ── Media RAG ────────────────────────────────────────────────────────
+    media_enabled: bool = Field(
+        False,
+        description="Enable image, audio, and video ingestion and retrieval."
+    )
+    clip_model: str = Field(
+        "openai/clip-vit-base-patch32",
+        description="CLIP model for image and video frame embeddings."
+    )
+    whisper_model: str = Field(
+        "base",
+        description="Whisper model size: tiny | base | small | medium | large"
+    )
+    whisper_use_faster: bool = Field(
+        False,
+        description="Use faster-whisper instead of openai-whisper for 4x speedup."
+    )
+    video_fps_sample: float = Field(
+        1.0,
+        description="Frames per second to extract from video for indexing."
+    )
+    video_max_frames: int = Field(
+        300,
+        description="Maximum frames to extract per video file."
+    )
+    audio_chunk_seconds: int = Field(
+        30,
+        description="Seconds per audio chunk for transcription."
+    )
+    image_generate_caption: bool = Field(
+        False,
+        description=(
+            "Generate text captions for images using BLIP. "
+            "Enables text→image cross-modal search. "
+            "Requires: pip install transformers (already installed)."
+        )
+    )
+    media_collections: dict = Field(
+        default_factory=lambda: {
+            "text":  "sumo_text",
+            "image": "sumo_image",
+            "audio": "sumo_audio",
+            "video": "sumo_video",
+        },
+        description="ChromaDB collection names per modality."
+    )
+
     # ── Prompt Templates ──────────────────────────────────────────────────────
     prompt_template_path: Optional[str] = None  # Directory containing custom prompt .txt files
 

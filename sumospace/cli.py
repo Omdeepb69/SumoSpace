@@ -544,5 +544,72 @@ def info():
     console.print("[dim]Default embeddings: BAAI/bge-base-en-v1.5 (local, no API key)[/dim]")
 
 
+@app.command("ingest-all")
+def ingest_all(
+    path: str = typer.Argument(..., help="Path to file or directory to ingest"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force re-ingestion of unchanged files"),
+):
+    """
+    Ingest files into the Media RAG pipeline.
+    Requires settings.media_enabled = True.
+    """
+    import asyncio
+    from sumospace.kernel import SumoKernel
+
+    async def _run():
+        async with SumoKernel() as kernel:
+            if not kernel.settings.media_enabled:
+                console.print("[red]✗ Media features are disabled. Set media_enabled=True in settings.[/red]")
+                return
+            
+            console.print(f"[cyan]Ingesting path: {path}[/cyan]")
+            results = await kernel.ingest_media(path, force=force)
+            
+            skipped = sum(1 for r in results if r.skipped)
+            added = sum(1 for r in results if not r.skipped and r.chunks_added > 0)
+            errors = sum(1 for r in results if r.error)
+            
+            console.print(f"\n[green]✓ Ingestion complete[/green]")
+            console.print(f"  Processed: {added} files")
+            console.print(f"  Skipped (unchanged): {skipped} files")
+            if errors:
+                console.print(f"  [red]Errors: {errors} files[/red]")
+
+    asyncio.run(_run())
+
+
+@app.command("search")
+def search(
+    query: str = typer.Argument(..., help="Text query or path to image/audio/video file"),
+    top_k: int = typer.Option(5, "--top-k", "-k", help="Number of results to return"),
+):
+    """
+    Search the Media RAG pipeline.
+    Auto-detects query type (text, image, audio, video).
+    Requires settings.media_enabled = True.
+    """
+    import asyncio
+    from sumospace.kernel import SumoKernel
+
+    async def _run():
+        async with SumoKernel() as kernel:
+            if not kernel.settings.media_enabled:
+                console.print("[red]✗ Media features are disabled. Set media_enabled=True in settings.[/red]")
+                return
+            
+            console.print(f"[cyan]Searching for: {query}[/cyan]")
+            results = await kernel.search_media(query, top_k=top_k)
+            
+            if not results:
+                console.print("[yellow]No results found.[/yellow]")
+                return
+                
+            console.print("\n[bold]Top Results:[/bold]")
+            for r in results:
+                console.print(r.preview(max_chars=200))
+
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     app()
