@@ -111,13 +111,23 @@ class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write content to a file, creating directories as needed."
 
+    def __init__(self, snapshot_manager=None, run_id: str | None = None):
+        self._snapshot_manager = snapshot_manager
+        self._run_id = run_id
+
     async def run(self, path: str, content: str, mode: str = "w", **_) -> ToolResult:
         import time
         start = time.monotonic()
         try:
             p = Path(path)
+            # Snapshot before mutation
+            if self._snapshot_manager and self._run_id:
+                self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
+            # Record after-state
+            if self._snapshot_manager and self._run_id:
+                self._snapshot_manager.record_after(self._run_id, str(p.resolve()))
             return ToolResult(
                 tool=self.name, success=True,
                 output=f"Written {len(content)} chars to {path}",
@@ -219,13 +229,21 @@ class PatchFileTool(BaseTool):
     name = "patch_file"
     description = "Apply a code patch to an existing file."
 
+    def __init__(self, snapshot_manager=None, run_id: str | None = None):
+        self._snapshot_manager = snapshot_manager
+        self._run_id = run_id
+
     async def run(self, path: str, patch: str, **_) -> ToolResult:
         import time
         start = time.monotonic()
         patch_path = None
         orig_path = None
         try:
-            original = Path(path).read_text(encoding="utf-8")
+            p = Path(path)
+            # Snapshot before mutation
+            if self._snapshot_manager and self._run_id:
+                self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
+            original = p.read_text(encoding="utf-8")
             with tempfile.NamedTemporaryFile(mode="w", suffix=".patch",
                                             delete=False, encoding="utf-8") as pf:
                 pf.write(patch)
@@ -242,7 +260,10 @@ class PatchFileTool(BaseTool):
             stdout, stderr = await proc.communicate()
             if proc.returncode == 0:
                 patched = Path(orig_path).read_text(encoding="utf-8")
-                Path(path).write_text(patched, encoding="utf-8")
+                p.write_text(patched, encoding="utf-8")
+                # Record after-state
+                if self._snapshot_manager and self._run_id:
+                    self._snapshot_manager.record_after(self._run_id, str(p.resolve()))
                 return ToolResult(
                     tool=self.name, success=True,
                     output=f"Patch applied to {path}",
@@ -256,10 +277,10 @@ class PatchFileTool(BaseTool):
         except Exception as e:
             return ToolResult(tool=self.name, success=False, output="", error=str(e))
         finally:
-            for p in [patch_path, orig_path]:
-                if p:
+            for fp in [patch_path, orig_path]:
+                if fp:
                     try:
-                        os.unlink(p)
+                        os.unlink(fp)
                     except Exception:
                         pass
 

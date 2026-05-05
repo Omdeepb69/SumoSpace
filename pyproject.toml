@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumospace"
-version = "0.1.0"
+version = "0.2.0"
 description = "A locally-first, multi-agent autonomous task execution framework with zero cloud dependencies."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -84,8 +84,24 @@ media-fast = [
     "sumospace[media]",
     "faster-whisper>=0.10",
 ]
+faiss = [
+    "faiss-cpu>=1.7",
+]
+qdrant = [
+    "qdrant-client>=1.7",
+]
+loaders = [
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "youtube-transcript-api>=0.6",
+]
+loaders-ocr = [
+    "sumospace[loaders]",
+    "pdf2image>=1.17",
+    "pytesseract>=0.3",
+]
 all = [
-    "sumospace[local,telemetry,cloud,desktop,media]",
+    "sumospace[local,telemetry,cloud,desktop,media,faiss,qdrant,loaders]",
 ]
 dev = [
     "pytest>=7.0",

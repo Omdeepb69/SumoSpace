@@ -90,6 +90,36 @@ class SumoSettings(BaseSettings):
     chroma_base: str = ".sumo_db"
     max_chunks_per_scope: Optional[int] = None
 
+    # ── Vector Store ─────────────────────────────────────────────────────────
+    vector_store: Literal["chroma", "faiss", "qdrant", "pgvector"] = Field(
+        "chroma",
+        description="Vector store backend. 'faiss' requires pip install sumospace[faiss]. 'qdrant' requires sumospace[qdrant]."
+    )
+    vector_store_url: Optional[str] = Field(
+        None,
+        description="Connection URL for remote vector stores (Qdrant, pgvector). E.g. 'http://localhost:6333'."
+    )
+
+    # ── Multi-Query Retrieval ─────────────────────────────────────────────────
+    rag_multi_query: bool = Field(
+        False,
+        description=(
+            "Generate query variants to improve retrieval quality. "
+            "Adds ~1-2s latency per retrieval (one additional LLM call, capped at 150 tokens). "
+            "Recommended for complex codebases with ambiguous terminology."
+        )
+    )
+    rag_multi_query_count: int = Field(
+        3,
+        description="Number of query variants to generate when rag_multi_query=True."
+    )
+
+    # ── Snapshot / Rollback ──────────────────────────────────────────────────
+    snapshot_enabled: bool = Field(
+        True,
+        description="Take file snapshots before tool mutations (patch_file, write_file). Enables rollback via 'sumo rollback <run-id>'."
+    )
+
     # ── Media RAG ────────────────────────────────────────────────────────
     media_enabled: bool = Field(
         False,

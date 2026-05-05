@@ -1,0 +1,47 @@
+site_name: SumoSpace
+site_description: A locally-first, multi-agent autonomous task execution framework.
+site_url: https://omdeepb69.github.io/SumoSpace
+repo_url: https://github.com/Omdeepb69/SumoSpace
+repo_name: Omdeepb69/SumoSpace
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: cyan
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - content.code.copy
+    - search.suggest
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Architecture: architecture.md
+  - Providers: providers.md
+  - Tools: tools.md
+  - Hooks: hooks.md
+  - Vector Stores: vector-stores.md
+  - Media RAG: media.md
+  - Rollback & Snapshots: rollback.md
+  - Benchmarks: benchmarks.md
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - tables

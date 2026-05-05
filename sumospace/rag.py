@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from sumospace.ingest import UniversalIngestor
+
+if TYPE_CHECKING:
+    from sumospace.settings import SumoSettings
 
 
 # ─── Data Models ──────────────────────────────────────────────────────────────
@@ -114,12 +117,16 @@ class RAGPipeline:
         reranker_model: str | None = None,
         use_reranker: bool = True,
         max_context_chars: int = 6000,
+        settings: "SumoSettings | None" = None,
+        provider=None,
     ):
         self.ingestor = ingestor
         self.top_k_candidates = top_k_candidates
         self.top_k_final = top_k_final
         self.use_reranker = use_reranker
         self.max_context_chars = max_context_chars
+        self._settings = settings
+        self._provider = provider
         self._reranker: CrossEncoderReranker | None = None
 
     async def initialize(self):
@@ -140,20 +147,30 @@ class RAGPipeline:
             filter_metadata: Optional ChromaDB where-filter (e.g., {"type": "function"}).
             force_no_rerank: Skip reranker even if configured.
         """
-        # Stage 1 — Vector search
-        raw = await self.ingestor.query(
-            query_text=query,
-            top_k=self.top_k_candidates,
-            where=filter_metadata,
-        )
-        candidates = [
-            RetrievedChunk(
-                text=r["text"],
-                metadata=r["metadata"],
-                vector_score=r["score"],
+        # Multi-query expansion (optional)
+        queries = [query]
+        if (
+            self._settings is not None
+            and self._settings.rag_multi_query
+            and self._provider is not None
+        ):
+            variants = await self._expand_query(
+                query, self._settings.rag_multi_query_count
             )
-            for r in raw
-        ]
+            queries = [query] + variants
+
+        # Stage 1 — Vector search (all query variants)
+        all_raw: list[dict] = []
+        for q in queries:
+            raw = await self.ingestor.query(
+                query_text=q,
+                top_k=self.top_k_candidates,
+                where=filter_metadata,
+            )
+            all_raw.extend(raw)
+
+        # Deduplicate by keeping best score per unique text
+        candidates = self._deduplicate(all_raw)
 
         # Stage 2 — Cross-encoder rerank
         used_reranker = False
@@ -183,8 +200,45 @@ class RAGPipeline:
             chunks=final_chunks,
             context=context,
             used_reranker=used_reranker,
-            total_candidates=len(raw),
+            total_candidates=len(all_raw),
         )
+
+    # ── Multi-query helpers ───────────────────────────────────────────────────
+
+    async def _expand_query(self, query: str, n: int = 3) -> list[str]:
+        """Generate n alternative phrasings of query using the current LLM provider."""
+        try:
+            prompt = (
+                f"Generate {n} different phrasings of this search query. "
+                f"Output only the queries, one per line, no numbering, no explanation.\n\n"
+                f"Query: {query}"
+            )
+            response = await self._provider.complete(
+                user=prompt,
+                temperature=0.7,
+                max_tokens=150,
+            )
+            variants = [
+                line.strip() for line in response.splitlines()
+                if line.strip() and line.strip() != query
+            ]
+            return variants[:n]
+        except Exception:
+            return []  # fallback: single-query mode
+
+    def _deduplicate(self, raw_results: list[dict]) -> list[RetrievedChunk]:
+        """Merge multi-query results, keeping the highest score per unique text."""
+        seen: dict[str, RetrievedChunk] = {}
+        for r in raw_results:
+            key = r["text"][:100]  # first 100 chars as dedup key
+            chunk = RetrievedChunk(
+                text=r["text"],
+                metadata=r["metadata"],
+                vector_score=r["score"],
+            )
+            if key not in seen or chunk.vector_score > seen[key].vector_score:
+                seen[key] = chunk
+        return sorted(seen.values(), key=lambda c: c.vector_score, reverse=True)
 
     def build_prompt(
         self,

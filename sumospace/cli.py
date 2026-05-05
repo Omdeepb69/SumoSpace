@@ -26,8 +26,15 @@ app = typer.Typer(
     help="SumoSpace — Auto-everything multi-agent execution environment.",
     add_completion=False,
 )
-logs_app = typer.Typer(help="Explore session audit logs.")
-app.add_typer(logs_app, name="logs")
+logs_app      = typer.Typer(help="Explore session audit logs.")
+snapshots_app = typer.Typer(help="Manage file snapshots and rollbacks.")
+benchmark_app = typer.Typer(help="Run and report agent benchmarks.")
+ingest_app    = typer.Typer(help="Ingest content from external sources.")
+
+app.add_typer(logs_app,      name="logs")
+app.add_typer(snapshots_app, name="snapshots")
+app.add_typer(benchmark_app, name="benchmark")
+app.add_typer(ingest_app,    name="ingest")
 console = Console()
 
 
@@ -609,6 +616,331 @@ def search(
                 console.print(r.preview(max_chars=200))
 
     asyncio.run(_run())
+
+
+# ─── snapshots ────────────────────────────────────────────────────────────────
+
+@snapshots_app.command("list")
+def snapshots_list(
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """List all available snapshots."""
+    from sumospace.settings import SumoSettings
+    from sumospace.snapshots import SnapshotManager
+
+    mgr = SnapshotManager(SumoSettings(workspace=workspace))
+    snaps = mgr.list_snapshots()
+    if not snaps:
+        console.print("[yellow]No snapshots found.[/yellow]")
+        return
+
+    table = Table(title="Snapshots")
+    table.add_column("Run ID",   style="cyan", no_wrap=True)
+    table.add_column("DateTime", style="dim")
+    table.add_column("Files",    justify="right")
+    for s in snaps:
+        table.add_row(s["run_id"], s.get("datetime", ""), str(s["files_count"]))
+    console.print(table)
+
+
+@snapshots_app.command("show")
+def snapshots_show(
+    run_id: str = typer.Argument(..., help="Run ID to inspect"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """Show the diff for a specific snapshot."""
+    from sumospace.settings import SumoSettings
+    from sumospace.snapshots import SnapshotManager
+
+    mgr = SnapshotManager(SumoSettings(workspace=workspace))
+    snap = mgr.show_snapshot(run_id)
+    if not snap:
+        console.print(f"[red]Snapshot '{run_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"[bold]Snapshot:[/bold] {snap['run_id']}")
+    console.print(f"[dim]{snap.get('datetime', '')}[/dim]\n")
+    for fe in snap.get("files", []):
+        console.print(f"  [cyan]{fe['path']}[/cyan]")
+        if fe.get("diff"):
+            console.print(fe["diff"][:1000])
+
+
+@app.command("rollback")
+def rollback(
+    run_id: str = typer.Argument(..., help="Run ID to rollback"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+):
+    """Rollback all file mutations from a previous run."""
+    from sumospace.settings import SumoSettings
+    from sumospace.snapshots import SnapshotManager
+
+    mgr = SnapshotManager(SumoSettings(workspace=workspace))
+    snap = mgr.show_snapshot(run_id)
+    if not snap:
+        console.print(f"[red]Snapshot '{run_id}' not found.[/red]")
+        raise typer.Exit(1)
+
+    files = [f["path"] for f in snap.get("files", [])]
+    console.print(f"[yellow]This will restore {len(files)} file(s) from run {run_id}:[/yellow]")
+    for f in files:
+        console.print(f"  {f}")
+
+    if not yes:
+        confirmed = typer.confirm("Proceed with rollback?")
+        if not confirmed:
+            console.print("[dim]Rollback cancelled.[/dim]")
+            return
+
+    restored = mgr.rollback(run_id)
+    for r in restored:
+        console.print(f"[green]✓[/green] {r}")
+    console.print(f"\n[green]Rollback complete. {len(restored)} file(s) restored.[/green]")
+
+
+# ─── benchmark ──────────────────────────────────────────────────────────────
+
+@benchmark_app.command("run")
+def benchmark_run(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Custom workspace (default: bundled fixtures)"),
+    tasks: Optional[str] = typer.Option(None, "--tasks", "-t", help="Comma-separated task IDs"),
+    mode: str = typer.Option("full", "--mode", "-m", help="Committee mode: full, plan_only, critique_only, disabled"),
+    output: str = typer.Option(".", "--output", "-o", help="Output directory for reports"),
+):
+    """Run benchmarks against the bundled sample project (or a custom workspace)."""
+    from sumospace.settings import SumoSettings
+    from sumospace.benchmarks.runner import BenchmarkRunner
+    from sumospace.benchmarks.report import BenchmarkReporter
+
+    task_ids = [t.strip() for t in tasks.split(",")] if tasks else None
+
+    async def _run():
+        settings = SumoSettings()
+        runner = BenchmarkRunner(
+            settings=settings,
+            workspace=workspace,
+            task_ids=task_ids,
+            committee_modes=[mode],
+        )
+        console.print(f"[cyan]Running benchmarks (mode={mode})...[/cyan]")
+        results = await runner.run()
+        reporter = BenchmarkReporter(results)
+        json_path, md_path = reporter.save(output)
+        console.print(f"[green]✓ Report saved:[/green] {md_path}")
+        console.print(reporter.to_markdown())
+
+    asyncio.run(_run())
+
+
+@benchmark_app.command("compare")
+def benchmark_compare(
+    workspace: Optional[str] = typer.Option(None, "--workspace", "-w"),
+    output: str = typer.Option(".", "--output", "-o"),
+):
+    """Compare all committee modes on benchmark tasks."""
+    from sumospace.settings import SumoSettings
+    from sumospace.benchmarks.runner import BenchmarkRunner
+    from sumospace.benchmarks.report import BenchmarkReporter
+
+    async def _run():
+        settings = SumoSettings()
+        runner = BenchmarkRunner(
+            settings=settings,
+            workspace=workspace,
+            committee_modes=["full", "plan_only", "critique_only", "disabled"],
+        )
+        console.print("[cyan]Running full committee mode comparison...[/cyan]")
+        results = await runner.run()
+        reporter = BenchmarkReporter(results)
+        _, md_path = reporter.save(output)
+        console.print(f"[green]✓ Comparison report:[/green] {md_path}")
+        console.print(reporter.to_markdown())
+
+    asyncio.run(_run())
+
+
+@benchmark_app.command("report")
+def benchmark_report(
+    json_path: str = typer.Argument(..., help="Path to a previously saved benchmark JSON"),
+):
+    """Render a Markdown report from a saved benchmark JSON file."""
+    import json
+    from sumospace.benchmarks.runner import BenchmarkResult, TaskResult
+    from sumospace.benchmarks.report import BenchmarkReporter
+
+    data = json.loads(Path(json_path).read_text())
+    results = []
+    for run in data.get("runs", []):
+        task_results = [
+            TaskResult(
+                task_id=t["task_id"], task_name=t["task_name"],
+                committee_mode=run["committee_mode"],
+                passed=t["passed"], validation_reason=t["validation_reason"],
+                duration_s=t["duration_s"], retries=t["retries"],
+                tool_calls=t["tool_calls"], tool_failures=t["tool_failures"],
+                rollback_triggered=t["rollback_triggered"], error=t.get("error", ""),
+            )
+            for t in run["tasks"]
+        ]
+        results.append(BenchmarkResult(
+            run_id=run["run_id"],
+            timestamp=0,
+            committee_mode=run["committee_mode"],
+            workspace="",
+            task_results=task_results,
+        ))
+    reporter = BenchmarkReporter(results)
+    console.print(reporter.to_markdown())
+
+
+# ─── ingest (external loaders) ────────────────────────────────────────────────
+
+@ingest_app.command("github")
+def ingest_github(
+    repo_url: str = typer.Argument(..., help="GitHub repository URL"),
+    branch: Optional[str] = typer.Option(None, "--branch", "-b"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """Clone and ingest a GitHub repository."""
+    from sumospace.settings import SumoSettings
+    from sumospace.ingest import UniversalIngestor
+    from sumospace.loaders.github import GitHubLoader
+
+    async def _run():
+        settings = SumoSettings(workspace=workspace)
+        ingestor = UniversalIngestor(chroma_path=settings.chroma_base)
+        await ingestor.initialize()
+        loader = GitHubLoader(branch=branch)
+        console.print(f"[cyan]Cloning {repo_url}...[/cyan]")
+        count = await loader.load_into(repo_url, ingestor)
+        console.print(f"[green]✓ Ingested {count} chunks from {repo_url}[/green]")
+
+    asyncio.run(_run())
+
+
+@ingest_app.command("youtube")
+def ingest_youtube(
+    url: str = typer.Argument(..., help="YouTube video URL"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """Fetch and ingest a YouTube video transcript."""
+    from sumospace.settings import SumoSettings
+    from sumospace.ingest import UniversalIngestor
+    from sumospace.loaders.youtube import YouTubeLoader
+
+    async def _run():
+        settings = SumoSettings(workspace=workspace)
+        ingestor = UniversalIngestor(chroma_path=settings.chroma_base)
+        await ingestor.initialize()
+        loader = YouTubeLoader()
+        console.print(f"[cyan]Fetching transcript for {url}...[/cyan]")
+        chunks = await loader.load(url)
+        if not chunks:
+            console.print("[yellow]No transcript found.[/yellow]")
+            return
+        errors: list[str] = []
+        await ingestor._embed_and_store(chunks, errors)
+        console.print(f"[green]✓ Ingested {len(chunks)} chunks[/green]")
+        if errors:
+            console.print(f"[red]Errors: {errors}[/red]")
+
+    asyncio.run(_run())
+
+
+@ingest_app.command("web")
+def ingest_web(
+    url: str = typer.Argument(..., help="Web page or root URL to crawl"),
+    crawl: bool = typer.Option(False, "--crawl", "-c", help="Crawl linked pages from root URL"),
+    max_pages: int = typer.Option(10, "--max-pages", "-n"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+):
+    """Fetch and ingest a web page (or crawl a site)."""
+    from sumospace.settings import SumoSettings
+    from sumospace.ingest import UniversalIngestor
+    from sumospace.loaders.web import WebLoader
+
+    async def _run():
+        settings = SumoSettings(workspace=workspace)
+        ingestor = UniversalIngestor(chroma_path=settings.chroma_base)
+        await ingestor.initialize()
+        loader = WebLoader()
+        if crawl:
+            console.print(f"[cyan]Crawling up to {max_pages} pages from {url}...[/cyan]")
+            chunks = await loader.crawl(url, max_pages=max_pages)
+        else:
+            console.print(f"[cyan]Fetching {url}...[/cyan]")
+            chunks = await loader.load(url)
+        errors: list[str] = []
+        await ingestor._embed_and_store(chunks, errors)
+        console.print(f"[green]✓ Ingested {len(chunks)} chunks[/green]")
+
+    asyncio.run(_run())
+
+
+# ─── watch ──────────────────────────────────────────────────────────────────
+
+@app.command("watch")
+def watch(
+    path: str = typer.Argument(".", help="Directory to watch for file changes"),
+    workspace: str = typer.Option(".", "--workspace", "-w"),
+    debounce: float = typer.Option(2.0, "--debounce", "-d", help="Seconds to wait after last change before re-ingesting"),
+):
+    """
+    Watch a directory for file changes and automatically re-ingest modified files.
+    Press Ctrl+C to stop.
+    """
+    import time
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    from sumospace.settings import SumoSettings
+    from sumospace.ingest import UniversalIngestor
+
+    settings = SumoSettings(workspace=workspace)
+    pending: dict[str, float] = {}  # path -> timestamp of last event
+
+    class _Handler(FileSystemEventHandler):
+        IGNORE = {"__pycache__", ".git", ".sumo_db", ".pytest_cache"}
+
+        def on_modified(self, event):
+            if event.is_directory:
+                return
+            if any(ex in event.src_path for ex in self.IGNORE):
+                return
+            pending[event.src_path] = time.monotonic()
+
+        on_created = on_modified
+
+    observer = Observer()
+    observer.schedule(_Handler(), path, recursive=True)
+    observer.start()
+    console.print(f"[green]Watching[/green] [cyan]{path}[/cyan] — press Ctrl+C to stop")
+
+    async def _ingest_pending():
+        ingestor = UniversalIngestor(chroma_path=settings.chroma_base)
+        await ingestor.initialize()
+        while True:
+            await asyncio.sleep(0.5)
+            now = time.monotonic()
+            ready = [p for p, t in list(pending.items()) if now - t >= debounce]
+            for fpath in ready:
+                del pending[fpath]
+                try:
+                    result = await ingestor.ingest_file(fpath, force=True)
+                    if result.chunks_created > 0:
+                        console.print(
+                            f"[green]✓[/green] Re-ingested [cyan]{fpath}[/cyan] "
+                            f"([dim]{result.chunks_created} chunks[/dim])"
+                        )
+                except Exception as e:
+                    console.print(f"[red]✗ {fpath}: {e}[/red]")
+
+    try:
+        asyncio.run(_ingest_pending())
+    except KeyboardInterrupt:
+        observer.stop()
+        console.print("\n[dim]Watch stopped.[/dim]")
+    observer.join()
 
 
 if __name__ == "__main__":
