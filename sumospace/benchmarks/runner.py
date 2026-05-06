@@ -127,7 +127,12 @@ class BenchmarkRunner:
 
         # Work in a temp copy so fixture files are never modified
         with tempfile.TemporaryDirectory() as tmp_ws:
-            shutil.copytree(self._workspace, tmp_ws, dirs_exist_ok=True)
+            shutil.copytree(
+                self._workspace, 
+                tmp_ws, 
+                dirs_exist_ok=True, 
+                ignore=shutil.ignore_patterns(".sumo_db", "__pycache__")
+            )
 
             # Build settings for this mode
             mode_settings = SumoSettings(
@@ -136,6 +141,8 @@ class BenchmarkRunner:
                     "workspace": tmp_ws,
                     "committee_enabled": committee_mode != "disabled",
                     "committee_mode": committee_mode if committee_mode != "disabled" else "full",
+                    "vector_store": "faiss",  # Use FAISS to avoid ChromaDB's PersistentClient cache collisions
+                    "memory_enabled": False,  # Episodic memory uses ChromaDB directly, causing tenant locks
                     "dry_run": False,
                     "verbose": False,
                 }
@@ -152,8 +159,7 @@ class BenchmarkRunner:
             try:
                 async with SumoKernel(settings=mode_settings) as kernel:
                     trace = await kernel.run(
-                        task=task.prompt,
-                        workspace=tmp_ws,
+                        task=task.prompt
                     )
                     output_text = str(getattr(trace, "final_output", trace))
                     # Collect metrics from trace if available
