@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sumospace"
-version = "0.2.0"
+version = "0.1.3"
 description = "A locally-first, multi-agent autonomous task execution framework with zero cloud dependencies."
 readme = "README.md"
 license = { file = "LICENSE" }

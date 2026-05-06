@@ -1,23 +1,19 @@
-# benchmarks/run_benchmark.py
+# sumospace/benchmarks/standalone.py
 """
-SumoSpace Real Benchmark Runner
-================================
+SumoSpace Real Benchmark Runner (Package-Bundled)
+==================================================
 Runs actual LLM inference against real coding tasks.
 Produces publishable results with full transparency.
 
-Usage:
-    python benchmarks/run_benchmark.py
-    python benchmarks/run_benchmark.py --provider ollama --model phi3:mini
-    python benchmarks/run_benchmark.py --modes full,disabled
-    python benchmarks/run_benchmark.py --task add_docstrings --mode full
+Called via:
+    sumo benchmark run --provider ollama --model phi3:mini
+    sumo benchmark run --provider ollama --model llama3:8b --modes full,disabled
+    sumo benchmark run --task add_docstrings --modes full
 
-Requirements:
-    - Ollama running: ollama serve
-    - Model pulled:  ollama pull phi3:mini
-    - SumoSpace installed: pip install -e .
+Or standalone:
+    python -m sumospace.benchmarks.standalone --provider ollama --model phi3:mini
 """
 
-import argparse
 import asyncio
 import ast
 import json
@@ -34,9 +30,8 @@ from pathlib import Path
 from typing import Callable
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-FIXTURES_DIR = Path(__file__).parent.parent / "sumospace/benchmarks/fixtures/sample_project"
-RESULTS_DIR  = Path(__file__).parent.parent / "benchmark_results"
-RESULTS_DIR.mkdir(exist_ok=True)
+# Fixtures ship inside the package
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "sample_project"
 
 DEFAULT_PROVIDER = "ollama"
 DEFAULT_MODEL    = "phi3:mini"
@@ -61,7 +56,7 @@ class TaskResult:
 class BenchmarkRun:
     provider:       str
     model:          str
-    hardware:       str            # auto-detected
+    hardware:       str
     sumoversion:    str
     started_at:     str
     finished_at:    str = ""
@@ -75,7 +70,7 @@ def verify_docstrings(workspace: Path) -> tuple[bool, float, str]:
     target_file = workspace / "utils.py"
     if not target_file.exists():
         return False, 0.0, "utils.py not found"
-        
+
     try:
         content = target_file.read_text(encoding="utf-8")
         tree = ast.parse(content)
@@ -104,7 +99,7 @@ def verify_dead_code(workspace: Path, original_workspace: Path) -> tuple[bool, f
     """Verify dead code was removed and file is still valid Python."""
     target_file = workspace / "dead_code.py"
     original_file = original_workspace / "dead_code.py"
-    
+
     if not target_file.exists():
         return False, 0.0, "dead_code.py not found"
 
@@ -114,10 +109,9 @@ def verify_dead_code(workspace: Path, original_workspace: Path) -> tuple[bool, f
     except SyntaxError as e:
         return False, 0.0, f"Syntax error: {e}"
 
-    # Verify dead objects are gone
     dead_names = ["_legacy_hash_password", "_old_format_date", "_deprecated_validate", "base64", "_LEGACY_VERSION", "_DEPRECATED_FLAG"]
     live_names = ["hash_content", "read_config", "write_config", "json", "hashlib"]
-    
+
     found_names = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
@@ -135,12 +129,12 @@ def verify_dead_code(workspace: Path, original_workspace: Path) -> tuple[bool, f
 
     dead_found = [n for n in dead_names if n in found_names]
     live_found = [n for n in live_names if n in found_names]
-    
+
     is_shorter = len(content) < len(original_file.read_text(encoding="utf-8"))
-    
+
     if not is_shorter:
         return False, 0.0, "File is not shorter than original"
-        
+
     if len(live_found) < len(live_names):
         missing = set(live_names) - set(live_found)
         return False, 0.0, f"Live code was incorrectly removed: {missing}"
@@ -166,7 +160,7 @@ def verify_async(workspace: Path) -> tuple[bool, float, str]:
     total_funcs = 0
     async_funcs = 0
     has_asyncio = False
-    
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -193,11 +187,10 @@ def verify_bugs(workspace: Path) -> tuple[bool, float, str]:
     if not target_file.exists():
         return False, 0.0, "buggy.py not found"
 
-    # We must load the module dynamically to run its tests
     spec = importlib.util.spec_from_file_location("buggy_test_mod", str(target_file))
     if spec is None or spec.loader is None:
         return False, 0.0, "Failed to load module spec"
-        
+
     mod = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(mod)
@@ -221,7 +214,7 @@ def verify_bugs(workspace: Path) -> tuple[bool, float, str]:
         except AssertionError:
             pass
         except Exception:
-            pass # Other exceptions also mean bug not fixed correctly
+            pass
 
     score = passed / len(tests)
     success = (passed == len(tests))
@@ -233,18 +226,17 @@ def verify_explanation(response_text: str, workspace: Path) -> tuple[bool, float
     """Verify the explanation is substantive and mentions real function names."""
     if not response_text:
         return False, 0.0, "Empty response"
-        
+
     word_count = len(response_text.split())
     if word_count < 100:
         return False, 0.0, f"Response too short ({word_count} words)"
-        
+
     if response_text.strip().startswith("def ") or response_text.strip().startswith("import "):
         return False, 0.0, "Response looks like raw code rather than an explanation"
 
-    # Check for known symbols from the codebase
     expected_symbols = ["calculate_discount", "safe_divide", "fetch_user"]
     found_symbols = [sym for sym in expected_symbols if sym in response_text]
-    
+
     score = 1.0 if len(found_symbols) > 0 and word_count >= 100 else 0.0
     success = score == 1.0
     notes = f"{word_count} words, {len(found_symbols)} key symbols mentioned"
@@ -284,7 +276,7 @@ TASKS = [
     },
     {
         "name":     "explain_codebase",
-        "file":     None,          # entire workspace
+        "file":     None,
         "prompt":   "Explain what this codebase does. Describe the main purpose, key functions, data flow, and any issues. Write for a new developer joining the project.",
         "verifier": verify_explanation,
         "needs_original": False
@@ -318,7 +310,6 @@ async def run_single_task(
     from sumospace.settings import SumoSettings
     from sumospace.kernel import SumoKernel
 
-    # Create fresh isolated workspace
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_ws = Path(tmpdir)
         shutil.copytree(FIXTURES_DIR, tmp_ws, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__", ".sumo_db"))
@@ -330,8 +321,8 @@ async def run_single_task(
             committee_enabled=(committee_mode != "disabled"),
             committee_mode=committee_mode if committee_mode != "disabled" else "full",
             vector_store="faiss",
-            memory_enabled=False, # Avoid ChromaDB locking on rapid temp directory recycling
-            rag_enabled=False,    # Avoid ChromaDB locks in Ingestor/RAGPipeline
+            memory_enabled=False,
+            rag_enabled=False,
             verbose=False,
             dry_run=False
         )
@@ -341,19 +332,17 @@ async def run_single_task(
         output_text = ""
         tool_failures = 0
         tool_calls = 0
-        
+        steps_executed = 0
+
         try:
             async with SumoKernel(settings=settings) as kernel:
                 trace = await kernel.run(task["prompt"])
                 output_text = str(getattr(trace, "final_output", getattr(trace, "final_answer", trace)))
-                
-                # Debug logging to see if tools are actually being called
-                print(f"  DEBUG: steps executed: {len(getattr(trace, 'step_traces', []))}")
-                called_tools = [s.tool for s in getattr(trace, 'step_traces', [])]
-                print(f"  DEBUG: tools called: {called_tools}")
-                print(f"  DEBUG: edit_file/replace called: {any('replace' in t or 'edit' in t or 'write' in t for t in called_tools)}")
-                
-                tool_calls = len(getattr(trace, "tool_calls", []))
+
+                step_traces = getattr(trace, "step_traces", [])
+                steps_executed = len(step_traces)
+                called_tools = [s.tool for s in step_traces]
+                tool_calls = len(called_tools)
                 tool_failures = sum(1 for tc in getattr(trace, "tool_calls", []) if not getattr(tc, "success", True))
         except Exception as e:
             error_msg = f"Kernel error: {e}"
@@ -384,7 +373,7 @@ async def run_single_task(
             duration_s=round(duration, 2),
             error=error_msg,
             tool_failures=tool_failures,
-            steps_executed=tool_calls,
+            steps_executed=steps_executed,
             notes=notes
         )
 
@@ -392,16 +381,16 @@ async def run_all(
     provider: str,
     model: str,
     modes: list[str],
-    task_filter: str | None,
+    task_filter: str | None = None,
 ) -> BenchmarkRun:
     """
     Run all tasks across all modes.
     Prints live progress to stdout.
     """
     await check_provider(provider, model)
-    
+
     from sumospace import __version__
-    
+
     run = BenchmarkRun(
         provider=provider,
         model=model,
@@ -409,30 +398,28 @@ async def run_all(
         sumoversion=__version__,
         started_at=datetime.now().isoformat(),
     )
-    
+
     target_tasks = [t for t in TASKS if not task_filter or t["name"] == task_filter]
     total_runs = len(modes) * len(target_tasks)
-    
+
     print("-" * 60)
-    
+
     run_idx = 1
     for mode in modes:
         for task in target_tasks:
-            # Print running status
             sys.stdout.write(f"[{run_idx:02d}/{total_runs:02d}] {task['name']:<20} | {mode:<14} | running...\r")
             sys.stdout.flush()
-            
+
             result = await run_single_task(task, mode, provider, model)
             run.results.append(result)
-            
-            # Print completed status
+
             status_char = "✓" if result.success else "✗"
             score_pct = f"{result.score * 100:.1f}%"
             sys.stdout.write(f"[{run_idx:02d}/{total_runs:02d}] {task['name']:<20} | {mode:<14} | {status_char} {score_pct:<6} | {result.duration_s:>5.1f}s | {result.notes}\n")
             sys.stdout.flush()
-            
+
             run_idx += 1
-            
+
     run.finished_at = datetime.now().isoformat()
     return run
 
@@ -440,17 +427,16 @@ async def run_all(
 
 def generate_report(run: BenchmarkRun) -> str:
     """Generate a markdown report from a BenchmarkRun."""
-    
+
     modes = []
     tasks = []
-    
+
     for r in run.results:
         if r.committee_mode not in modes:
             modes.append(r.committee_mode)
         if r.task_name not in tasks:
             tasks.append(r.task_name)
-            
-    # Calculate mode summaries
+
     mode_summaries = []
     for mode in modes:
         mode_results = [r for r in run.results if r.committee_mode == mode]
@@ -465,16 +451,15 @@ def generate_report(run: BenchmarkRun) -> str:
             "avg_dur": f"{avg_dur:.1f}s",
             "failures": tool_failures
         })
-        
+
     summary_table = "\n".join([
         f"| `{s['mode']}` | {s['success_rate']} | {s['avg_dur']} | {s['failures']} |"
         for s in mode_summaries
     ])
-    
-    # Calculate task grid
+
     grid_header = "| Task | " + " | ".join(modes) + " |"
     grid_divider = "|------|" + "|".join(["---"] * len(modes)) + "|"
-    
+
     grid_rows = []
     for t in tasks:
         row = [f"**{t}**"]
@@ -485,11 +470,11 @@ def generate_report(run: BenchmarkRun) -> str:
             else:
                 row.append("-")
         grid_rows.append("| " + " | ".join(row) + " |")
-        
+
     grid = "\n".join([grid_header, grid_divider] + grid_rows)
-    
+
     date_str = datetime.fromisoformat(run.started_at).strftime("%Y-%m-%d")
-    
+
     report = f"""# SumoSpace Benchmark Results
 
 **Model:** {run.model}  
@@ -524,7 +509,7 @@ def detect_hardware() -> str:
     sys_info = platform.system()
     machine = platform.machine()
     processor = platform.processor() or machine
-    
+
     try:
         import psutil
         ram_gb = round(psutil.virtual_memory().total / (1024**3))
@@ -532,9 +517,11 @@ def detect_hardware() -> str:
     except ImportError:
         return f"{sys_info} {processor}"
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── CLI entry point ───────────────────────────────────────────────────────────
 
 def main():
+    import argparse
+
     parser = argparse.ArgumentParser(description="SumoSpace Real Benchmark Runner")
     parser.add_argument("--provider", default=DEFAULT_PROVIDER)
     parser.add_argument("--model",    default=DEFAULT_MODEL)
@@ -543,10 +530,12 @@ def main():
     parser.add_argument("--task",     default=None,
                         help="Run only one task by name")
     parser.add_argument("--output",   default=None,
-                        help="Output file path (default: benchmark_results/TIMESTAMP.md)")
+                        help="Output file path (default: ./benchmark_results/TIMESTAMP.md)")
     args = parser.parse_args()
 
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]
+    results_dir = Path("benchmark_results")
+    results_dir.mkdir(exist_ok=True)
 
     print(f"""
 ╔══════════════════════════════════════════════════════╗
@@ -579,20 +568,19 @@ Starting in 3 seconds...
     ))
 
     report = generate_report(run)
-    
-    # Save markdown report
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = Path(args.output) if args.output else RESULTS_DIR / f"benchmark_{timestamp}.md"
+    out_path = Path(args.output) if args.output else results_dir / f"benchmark_{timestamp}.md"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(report)
-    
-    # Save JSON for programmatic access
+
     json_path = out_path.with_suffix(".json")
     json_path.write_text(json.dumps(asdict(run), indent=2))
 
     print(f"\n{'='*60}")
     print(f"Results saved to: {out_path}")
     print(f"Raw JSON saved to: {json_path}")
+
 
 if __name__ == "__main__":
     main()

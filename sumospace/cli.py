@@ -28,7 +28,7 @@ app = typer.Typer(
 )
 logs_app      = typer.Typer(help="Explore session audit logs.")
 snapshots_app = typer.Typer(help="Manage file snapshots and rollbacks.")
-benchmark_app = typer.Typer(help="Run and report agent benchmarks.")
+benchmark_app = typer.Typer(help="Run and report agent benchmarks.", invoke_without_command=True)
 ingest_app    = typer.Typer(help="Ingest content from external sources.")
 
 app.add_typer(logs_app,      name="logs")
@@ -701,97 +701,123 @@ def rollback(
 
 # ─── benchmark ──────────────────────────────────────────────────────────────
 
+@benchmark_app.callback(invoke_without_command=True)
+def benchmark_callback(
+    ctx: typer.Context,
+    provider: str = typer.Option("ollama", "--provider", "-p", help="Model provider: ollama | hf | openai | anthropic | gemini"),
+    model: str = typer.Option("phi3:mini", "--model", "-m", help="Model name (e.g. phi3:mini, llama3:8b, gpt-4o-mini)"),
+    modes: str = typer.Option("disabled,plan_only,critique_only,full", "--modes", help="Comma-separated committee modes"),
+    task: Optional[str] = typer.Option(None, "--task", "-t", help="Run only one task by name"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path"),
+):
+    """Run and report agent benchmarks.
+
+    If called without a subcommand, defaults to running the benchmark.
+    """
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(
+            benchmark_run,
+            provider=provider,
+            model=model,
+            modes=modes,
+            task=task,
+            output=output,
+        )
+
 @benchmark_app.command("run")
 def benchmark_run(
-    workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Custom workspace (default: bundled fixtures)"),
-    tasks: Optional[str] = typer.Option(None, "--tasks", "-t", help="Comma-separated task IDs"),
-    mode: str = typer.Option("full", "--mode", "-m", help="Committee mode: full, plan_only, critique_only, disabled"),
-    output: str = typer.Option(".", "--output", "-o", help="Output directory for reports"),
+    provider: str = typer.Option("ollama", "--provider", "-p", help="Model provider: ollama | hf | openai | anthropic | gemini"),
+    model: str = typer.Option("phi3:mini", "--model", "-m", help="Model name (e.g. phi3:mini, llama3:8b, gpt-4o-mini)"),
+    modes: str = typer.Option("disabled,plan_only,critique_only,full", "--modes", help="Comma-separated committee modes"),
+    task: Optional[str] = typer.Option(None, "--task", "-t", help="Run only one task by name"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path"),
 ):
-    """Run benchmarks against the bundled sample project (or a custom workspace)."""
-    from sumospace.settings import SumoSettings
-    from sumospace.benchmarks.runner import BenchmarkRunner
-    from sumospace.benchmarks.report import BenchmarkReporter
+    """Run real LLM benchmarks against bundled coding tasks.
 
-    task_ids = [t.strip() for t in tasks.split(",")] if tasks else None
+    Examples:
+        sumo benchmark run --provider ollama --model phi3:mini
+        sumo benchmark run --provider ollama --model llama3:8b --modes full,disabled
+        sumo benchmark run --task add_docstrings --modes full
+    """
+    from sumospace.benchmarks.standalone import (
+        run_all, generate_report, detect_hardware, TASKS,
+    )
+    from dataclasses import asdict
+    import json as _json
 
-    async def _run():
-        settings = SumoSettings()
-        runner = BenchmarkRunner(
-            settings=settings,
-            workspace=workspace,
-            task_ids=task_ids,
-            committee_modes=[mode],
-        )
-        console.print(f"[cyan]Running benchmarks (mode={mode})...[/cyan]")
-        results = await runner.run()
-        reporter = BenchmarkReporter(results)
-        json_path, md_path = reporter.save(output)
-        console.print(f"[green]✓ Report saved:[/green] {md_path}")
-        console.print(reporter.to_markdown())
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()]
+    results_dir = Path("benchmark_results")
+    results_dir.mkdir(exist_ok=True)
 
-    asyncio.run(_run())
+    console.print(f"""
+[bold cyan]╔══════════════════════════════════════════════════════╗[/bold cyan]
+[bold cyan]║         SumoSpace Real Benchmark Runner              ║[/bold cyan]
+[bold cyan]╠══════════════════════════════════════════════════════╣[/bold cyan]
+[bold cyan]║[/bold cyan]  Provider:  {provider:<41}[bold cyan]║[/bold cyan]
+[bold cyan]║[/bold cyan]  Model:     {model:<41}[bold cyan]║[/bold cyan]
+[bold cyan]║[/bold cyan]  Modes:     {', '.join(mode_list):<41}[bold cyan]║[/bold cyan]
+[bold cyan]║[/bold cyan]  Hardware:  {detect_hardware():<41}[bold cyan]║[/bold cyan]
+[bold cyan]╚══════════════════════════════════════════════════════╝[/bold cyan]
 
+[yellow]WARNING:[/yellow] This runs real LLM inference.
+Estimated time: {len(mode_list) * len(TASKS) * 2}-{len(mode_list) * len(TASKS) * 4} minutes
 
-@benchmark_app.command("compare")
-def benchmark_compare(
-    workspace: Optional[str] = typer.Option(None, "--workspace", "-w"),
-    output: str = typer.Option(".", "--output", "-o"),
-):
-    """Compare all committee modes on benchmark tasks."""
-    from sumospace.settings import SumoSettings
-    from sumospace.benchmarks.runner import BenchmarkRunner
-    from sumospace.benchmarks.report import BenchmarkReporter
+Press Ctrl+C to cancel. Starting in 3 seconds...
+""")
 
-    async def _run():
-        settings = SumoSettings()
-        runner = BenchmarkRunner(
-            settings=settings,
-            workspace=workspace,
-            committee_modes=["full", "plan_only", "critique_only", "disabled"],
-        )
-        console.print("[cyan]Running full committee mode comparison...[/cyan]")
-        results = await runner.run()
-        reporter = BenchmarkReporter(results)
-        _, md_path = reporter.save(output)
-        console.print(f"[green]✓ Comparison report:[/green] {md_path}")
-        console.print(reporter.to_markdown())
+    import time as _time
+    try:
+        _time.sleep(3)
+    except KeyboardInterrupt:
+        console.print("[dim]Cancelled.[/dim]")
+        raise typer.Exit(0)
 
-    asyncio.run(_run())
+    run = asyncio.run(run_all(
+        provider=provider,
+        model=model,
+        modes=mode_list,
+        task_filter=task,
+    ))
+
+    report = generate_report(run)
+
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = Path(output) if output else results_dir / f"benchmark_{timestamp}.md"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(report)
+
+    json_path = out_path.with_suffix(".json")
+    json_path.write_text(_json.dumps(asdict(run), indent=2))
+
+    console.print(f"\n[green]✓ Results saved to:[/green] {out_path}")
+    console.print(f"[green]✓ Raw JSON saved to:[/green] {json_path}")
+    console.print(report)
 
 
 @benchmark_app.command("report")
 def benchmark_report(
-    json_path: str = typer.Argument(..., help="Path to a previously saved benchmark JSON"),
+    json_path: str = typer.Argument(..., help="Path to a previously saved benchmark JSON file"),
 ):
     """Render a Markdown report from a saved benchmark JSON file."""
-    import json
-    from sumospace.benchmarks.runner import BenchmarkResult, TaskResult
-    from sumospace.benchmarks.report import BenchmarkReporter
+    import json as _json
+    from sumospace.benchmarks.standalone import BenchmarkRun, TaskResult, generate_report
 
-    data = json.loads(Path(json_path).read_text())
-    results = []
-    for run in data.get("runs", []):
-        task_results = [
-            TaskResult(
-                task_id=t["task_id"], task_name=t["task_name"],
-                committee_mode=run["committee_mode"],
-                passed=t["passed"], validation_reason=t["validation_reason"],
-                duration_s=t["duration_s"], retries=t["retries"],
-                tool_calls=t["tool_calls"], tool_failures=t["tool_failures"],
-                rollback_triggered=t["rollback_triggered"], error=t.get("error", ""),
-            )
-            for t in run["tasks"]
-        ]
-        results.append(BenchmarkResult(
-            run_id=run["run_id"],
-            timestamp=0,
-            committee_mode=run["committee_mode"],
-            workspace="",
-            task_results=task_results,
-        ))
-    reporter = BenchmarkReporter(results)
-    console.print(reporter.to_markdown())
+    data = _json.loads(Path(json_path).read_text())
+    try:
+        run = BenchmarkRun(
+            provider=data["provider"],
+            model=data["model"],
+            hardware=data.get("hardware", ""),
+            sumoversion=data.get("sumoversion", ""),
+            started_at=data.get("started_at", ""),
+            finished_at=data.get("finished_at", ""),
+        )
+        run.results = [TaskResult(**r) for r in data.get("results", [])]
+        console.print(generate_report(run))
+    except Exception as e:
+        console.print(f"[red]Could not parse {json_path}: {e}[/red]")
+        raise typer.Exit(1)
 
 
 # ─── ingest (external loaders) ────────────────────────────────────────────────

@@ -1,88 +1,92 @@
-# Build
-dist/
-build/
-*.egg-info/
-.eggs/
-pyproject.toml.bak
-
-# SumoSpace runtime
-.sumo_db/
-.sumo_audit/
-.sumo_desktop_db/
-.sumo_image_db/
-.sumo_finance_db/
-.sumo_cache/
-.sumo_secrets/
-examples/sumofinance
-*.jsonl
-*.log
-
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
-develop-eggs/
-downloads/
-eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-.installed.cfg
 *.egg
-MANIFEST
+*.egg-info/
+dist/
+build/
+.eggs/
+.Python
+pip-wheel-metadata/
 
-# Virtual Environments
+# ── Virtual environments ──────────────────────────────────────────────────────
 .venv/
 venv/
-ENV/
 env/
-
-# Environment
+ENV/
 .env
 .env.*
 !.env.example
 
-# IDE
+# ── SumoSpace runtime ─────────────────────────────────────────────────────────
+.sumo_db/
+.sumo_cache/
+.sumo_audit/
+.sumo_desktop_db/
+.sumo_image_db/
+.sumo_multimodal_db/
+*.jsonl
+*.faiss
+*.pkl
+
+# ── Benchmark results ─────────────────────────────────────────────────────────
+benchmark_results/
+!benchmark_results/README.md
+
+# ── MkDocs ────────────────────────────────────────────────────────────────────
+site/
+
+# ── Distribution ──────────────────────────────────────────────────────────────
+dist/
+*.whl
+*.tar.gz
+*.egg-info/
+
+# ── Testing & coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
-.project
-.pydevproject
-.settings/
+*~
 
-# Coverage / Testing
-.coverage
-htmlcov/
-coverage.xml
-.pytest_cache/
-.tox/
-.nox/
-nosetests.xml
-coverage.xml
-*.cover
-.stack-work/
-
-# OS
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Scratch and test output files
-dry_run_fail.txt
-full_suite_final*.txt
-test_output.txt
-uploaded_images/
+# ── Temporary files ───────────────────────────────────────────────────────────
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
 
-# Docs
-site/
+# ── Model weights ─────────────────────────────────────────────────────────────
+*.bin
+*.safetensors
+*.gguf
+*.ggml
 
-# Benchmarks
-benchmark_results/*.md
-!benchmark_results/README.md
-benchmark_results/*.json
+# ── Secrets ───────────────────────────────────────────────────────────────────
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Snapshots (runtime generated) ────────────────────────────────────────────
+.sumo_db/snapshots/

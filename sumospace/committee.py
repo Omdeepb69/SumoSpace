@@ -21,15 +21,37 @@ from typing import Any
 def _clean_json(raw: str) -> str:
     """Strip markdown fences and leading/trailing noise before parsing."""
     raw = raw.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-    # Find first { and last } in case of leading text
+    
+    # Strip markdown fences first
+    if "```" in raw:
+        raw = re.sub(r"```(?:json)?\s*", "", raw)
+        raw = raw.replace("```", "")
+    
+    # Find the JSON object boundaries
+    # Search for first { that starts a valid object
     start = raw.find("{")
-    end = raw.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return raw[start:end+1]
-    return raw
+    if start == -1:
+        return raw
+    
+    # Find the matching closing brace
+    depth = 0
+    end = start
+    for i, char in enumerate(raw[start:], start):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+                
+    # If the LLM generated malformed JSON (mismatched braces), fallback to the last }
+    if depth != 0:
+        end = raw.rfind("}")
+        if end < start:
+            return raw
+    
+    return raw[start:end + 1]
 
 
 # ─── Data Models ─────────────────────────────────────────────────────────────
@@ -176,6 +198,13 @@ class PlannerAgent(BaseAgent):
     def _parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
         # Strip markdown fences and noise
         raw_clean = _clean_json(raw)
+        
+        # DEBUG LOGGING
+        import os
+        if os.environ.get("DEBUG_PLANNER"):
+            with open("/tmp/planner_debug.log", "a") as f:
+                f.write(f"\n--- RAW ---\n{raw}\n--- CLEAN ---\n{raw_clean}\n")
+        
         try:
             data = json.loads(raw_clean)
             steps = [
