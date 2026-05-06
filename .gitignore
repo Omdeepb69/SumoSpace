@@ -79,3 +79,10 @@ full_suite_final*.txt
 test_output.txt
 uploaded_images/
 
+# Docs
+site/
+
+# Benchmarks
+benchmark_results/*.md
+!benchmark_results/README.md
+benchmark_results/*.json

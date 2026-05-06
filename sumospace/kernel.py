@@ -285,27 +285,34 @@ class SumoKernel:
                 )
 
             # 4. Memory
-            self._memory = MemoryManager(
-                chroma_path=resolved_chroma,
-                embedding_provider=cfg.embedding_provider,
-                scope_manager=scope_mgr,
-                user_id=cfg.user_id,
-                session_id=cfg.session_id,
-                project_id=cfg.project_id,
-            )
-            await self._memory.initialize()
+            if cfg.memory_enabled:
+                self._memory = MemoryManager(
+                    chroma_path=resolved_chroma,
+                    embedding_provider=cfg.embedding_provider,
+                    scope_manager=scope_mgr,
+                    user_id=cfg.user_id,
+                    session_id=cfg.session_id,
+                    project_id=cfg.project_id,
+                )
+                await self._memory.initialize()
+            else:
+                self._memory = None
 
             # 5. Ingestor + RAG
-            self._ingestor = UniversalIngestor(
-                chroma_path=resolved_chroma,
-                embedding_provider=cfg.embedding_provider,
-                embedding_model=cfg.embedding_model,
-                max_chunks=cfg.max_chunks_per_scope,
-            )
-            await self._ingestor.initialize()
+            if getattr(cfg, "rag_enabled", True):
+                self._ingestor = UniversalIngestor(
+                    chroma_path=resolved_chroma,
+                    embedding_provider=cfg.embedding_provider,
+                    embedding_model=cfg.embedding_model,
+                    max_chunks=cfg.max_chunks_per_scope,
+                )
+                await self._ingestor.initialize()
 
-            self._rag = RAGPipeline(ingestor=self._ingestor)
-            await self._rag.initialize()
+                self._rag = RAGPipeline(ingestor=self._ingestor)
+                await self._rag.initialize()
+            else:
+                self._ingestor = None
+                self._rag = None
 
             # 5. Classifier
             self._classifier = SumoClassifier(provider=self._provider)
