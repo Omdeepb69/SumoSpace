@@ -1,80 +1,181 @@
-# SumoSpace
+---
+hide:
+  - navigation
+  - toc
+---
 
-**Locally-first. Multi-agent. Zero cloud dependencies.**
-
-SumoSpace is a production-grade autonomous agent framework that runs entirely on your machine.
-No API keys required to get started. No usage fees. No data leaves your environment.
+<div class="hero">
+  <div class="hero-badge">v0.2.0 — Now with Media RAG + Rollback</div>
+  <h1 class="hero-title">
+    Autonomous AI agents.<br>
+    <span class="hero-accent">No cloud. No keys. No limits.</span>
+  </h1>
+  <p class="hero-subtitle">
+    SumoSpace is a locally-first agent framework with a three-agent 
+    safety committee, built-in rollback, and zero cloud dependencies.
+  </p>
+  <div class="hero-actions">
+    <a href="getting-started/quickstart/" class="hero-btn-primary">
+      Get started →
+    </a>
+    <a href="https://github.com/Omdeepb69/SumoSpace" class="hero-btn-secondary">
+      View on GitHub
+    </a>
+  </div>
+</div>
 
 ```bash
 pip install sumospace
-sumo run "Refactor all sync functions in src/ to async"
 ```
 
----
+<div class="feature-grid">
+  <div class="feature-card">
+    <div class="feature-card-icon">🛡️</div>
+    <div class="feature-card-title">Three-Agent Safety Committee</div>
+    <div class="feature-card-desc">Planner, Critic, Resolver deliberate before execution</div>
+  </div>
+  <div class="feature-card">
+    <div class="feature-card-icon">🏠</div>
+    <div class="feature-card-title">Truly Local</div>
+    <div class="feature-card-desc">HuggingFace, Ollama, vLLM. No cloud required.</div>
+  </div>
+  <div class="feature-card">
+    <div class="feature-card-icon">↩️</div>
+    <div class="feature-card-title">Rollback & Snapshots</div>
+    <div class="feature-card-desc">One command to undo any agent action</div>
+  </div>
+  <div class="feature-card">
+    <div class="feature-card-icon">🎯</div>
+    <div class="feature-card-title">Media RAG</div>
+    <div class="feature-card-desc">Ingest images, audio, video alongside code</div>
+  </div>
+  <div class="feature-card">
+    <div class="feature-card-icon">🔌</div>
+    <div class="feature-card-title">Plugin Ecosystem</div>
+    <div class="feature-card-desc">Register tools via pip install</div>
+  </div>
+  <div class="feature-card">
+    <div class="feature-card-icon">📊</div>
+    <div class="feature-card-title">Built-in Benchmarks</div>
+    <div class="feature-card-desc">Reproducible evaluation framework</div>
+  </div>
+</div>
 
-## Why SumoSpace
-
-| | SumoSpace | LangChain | LlamaIndex |
-|---|---|---|---|
-| **Default provider** | Local (HF / Ollama) | OpenAI | OpenAI |
-| **API key required** | ❌ No | ✅ Yes | ✅ Yes |
-| **Multi-agent committee** | ✅ Built-in | ➕ Extra | ❌ No |
-| **File snapshot + rollback** | ✅ Built-in | ❌ No | ❌ No |
-| **Media RAG** | ✅ Built-in | ➕ Extra | ➕ Extra |
-| **Benchmarks** | ✅ Built-in | ❌ No | ❌ No |
-
----
-
-## Quickstart
-
-```bash
-pip install sumospace
-sumo ingest ./src          # Index your codebase
-sumo run "Add docstrings to all public functions"
-sumo rollback <run-id>     # Undo if needed
+```mermaid
+flowchart LR
+    User([User]) --> Kernel[Kernel]
+    
+    subgraph Committee ["Safety Committee"]
+        direction TB
+        Planner[Planner] --> Critic[Critic]
+        Critic -- Reject --> Resolver[Resolver]
+        Resolver -. Revise .-> Planner
+        Critic -- Approve --> Approved((Plan))
+    end
+    
+    Kernel --> Classifier{Classifier}
+    Classifier --> Committee
+    
+    Approved --> Executor[Tool Executor]
+    Executor --> Snapshot[(Snapshot)]
+    Snapshot --> Memory[(Memory)]
+    Memory --> Kernel
+    
+    Kernel --> Output([Final Answer])
 ```
 
----
+=== "Ollama (Local)"
 
-## One Killer Example
+    ```python
+    from sumospace import SumoKernel, SumoSettings
+    import asyncio
 
-```python
-import asyncio
-from sumospace import SumoKernel, SumoSettings
+    async def main():
+        async with SumoKernel(SumoSettings(
+            provider="ollama",
+            model="phi3:mini",
+        )) as kernel:
+            trace = await kernel.run(
+                "Add docstrings to all functions in ./src/utils.py"
+            )
+            print(trace.final_answer)
 
-async def main():
-    settings = SumoSettings.for_coding()
-    async with SumoKernel(settings=settings) as kernel:
-        await kernel.ingest("./src")
-        trace = await kernel.run("Fix all TODO comments in src/auth.py")
-        print(trace.final_output)
+    asyncio.run(main())
+    ```
 
-asyncio.run(main())
-```
+=== "CLI"
 
----
+    ```bash
+    pip install sumospace
+    ollama pull phi3:mini
+    sumo run "Add docstrings to all functions in ./src/utils.py"
+    ```
 
-## Architecture
+=== "OpenAI"
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    SumoKernel                       │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │ Planner  │→ │  Critic  │→ │    Resolver      │  │
-│  └──────────┘  └──────────┘  └──────────────────┘  │
-│         Committee (optional, 3-agent)               │
-├─────────────────────────────────────────────────────┤
-│   RAG Pipeline    │  Memory   │  Audit Logs        │
-│   (multi-query)   │  (SQLite) │  (JSON)            │
-├─────────────────────────────────────────────────────┤
-│   Vector Store    │  Snapshots + Rollback           │
-│   chroma/faiss/   │  (.sumo_db/snapshots/)         │
-│   qdrant          │                                │
-├─────────────────────────────────────────────────────┤
-│          Tools: file, shell, web, docker, deps     │
-└─────────────────────────────────────────────────────┘
-```
+    ```python
+    async with SumoKernel(SumoSettings(
+        provider="openai",
+        model="gpt-4o",
+        # reads OPENAI_API_KEY from env
+    )) as kernel:
+        trace = await kernel.run("Refactor auth.py to use async/await")
+    ```
 
----
 
-📖 **Full documentation:** [omdeepb69.github.io/SumoSpace](https://omdeepb69.github.io/SumoSpace)
+## Why SumoSpace?
+
+<table class="comparison-table">
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>SumoSpace</th>
+      <th>LangChain / LlamaIndex</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Core Philosophy</strong></td>
+      <td>Execution-first, safe autonomy</td>
+      <td>Chain-building, orchestration</td>
+    </tr>
+    <tr>
+      <td><strong>Built-in Safety</strong></td>
+      <td><span class="check">✔</span> Three-Agent Committee</td>
+      <td><span class="cross">✘</span> Build your own</td>
+    </tr>
+    <tr>
+      <td><strong>Rollback Support</strong></td>
+      <td><span class="check">✔</span> Native filesystem snapshots</td>
+      <td><span class="cross">✘</span> None</td>
+    </tr>
+    <tr>
+      <td><strong>Cloud Independence</strong></td>
+      <td><span class="check">✔</span> 100% offline capable</td>
+      <td><span class="extra">~</span> Possible, but cloud-native</td>
+    </tr>
+    <tr>
+      <td><strong>Multi-Modal RAG</strong></td>
+      <td><span class="check">✔</span> Native audio/video/image</td>
+      <td><span class="check">✔</span> Supported</td>
+    </tr>
+  </tbody>
+</table>
+
+<br>
+
+!!! info "Benchmarks"
+    We run reproducible benchmarks using our built-in framework.
+    Results for phi3:mini and llama3:8b will be published here
+    after community validation. Run your own:
+    
+    ```bash
+    sumo benchmark compare --provider ollama --model llama3:8b
+    ```
+
+<div class="footer-cta">
+  <h2>Ready to run your first agent?</h2>
+  <a href="getting-started/quickstart/" class="hero-btn-primary">
+    Read the quickstart →
+  </a>
+</div>

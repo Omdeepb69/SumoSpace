@@ -1,47 +1,165 @@
 site_name: SumoSpace
-site_description: A locally-first, multi-agent autonomous task execution framework.
+site_description: Locally-first autonomous agent framework. Zero cloud dependencies.
 site_url: https://omdeepb69.github.io/SumoSpace
 repo_url: https://github.com/Omdeepb69/SumoSpace
 repo_name: Omdeepb69/SumoSpace
+edit_uri: edit/main/docs/
 
 theme:
   name: material
+  custom_dir: docs/overrides
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+
   palette:
+    # Dark mode (default)
     - scheme: slate
-      primary: deep purple
-      accent: cyan
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    # Light mode
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+  font:
+    text: Inter
+    code: JetBrains Mono
+
   features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
-    - content.code.copy
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - toc.integrate
     - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+    - announce.dismiss
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
 
 plugins:
-  - search
+  - search:
+      separator: '[\s\-\.]+'
   - mkdocstrings:
       handlers:
         python:
           options:
             docstring_style: google
             show_source: true
+            show_root_heading: true
+            show_signature_annotations: true
+            separate_signature: true
+            merge_init_into_class: true
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - def_list
+  - abbr
+  - toc:
+      permalink: true
+      title: On this page
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Omdeepb69/SumoSpace
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/sumospace
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/sumospace
+  analytics:
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/emoticon-happy-outline
+          name: This page was helpful
+          data: 1
+          note: Thanks for your feedback!
+        - icon: material/emoticon-sad-outline
+          name: This page could be improved
+          data: 0
+          note: Thanks — we will improve this page.
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
-  - Architecture: architecture.md
-  - Providers: providers.md
-  - Tools: tools.md
-  - Hooks: hooks.md
-  - Vector Stores: vector-stores.md
-  - Media RAG: media.md
-  - Rollback & Snapshots: rollback.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quickstart: getting-started/quickstart.md
+    - First Agent: getting-started/first-agent.md
+    - Configuration: getting-started/configuration.md
+  - Core Concepts:
+    - Architecture: architecture.md
+    - Pipeline: concepts/pipeline.md
+    - Committee: concepts/committee.md
+    - Presets: concepts/presets.md
+  - Guides:
+    - Providers: providers.md
+    - Tools: tools.md
+    - Hooks: hooks.md
+    - Vector Stores: vector-stores.md
+    - Media RAG: media.md
+    - Multi-User: guides/multi-user.md
+    - Rollback & Snapshots: rollback.md
+  - Reference:
+    - SumoSettings: reference/settings.md
+    - SumoKernel: reference/kernel.md
+    - CLI: reference/cli.md
+    - Exceptions: reference/exceptions.md
   - Benchmarks: benchmarks.md
-
-markdown_extensions:
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.superfences
-  - pymdownx.tabbed:
-      alternate_style: true
-  - admonition
-  - tables
+  - Changelog: changelog.md
+  - Contributing: contributing.md
