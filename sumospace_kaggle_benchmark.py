@@ -68,12 +68,15 @@ try:
     time.sleep(5)
     
     print("\n3. Cloning SumoSpace repository...")
-    print("\n3. Cloning fresh SumoSpace repository...")
+    print("\n3. Cleaning up old installs and databases...")
+    subprocess.run("pip uninstall -y sumospace", shell=True, check=False)
     repo_dir = "/kaggle/working/SumoSpace"
     if os.path.exists(repo_dir):
-        print("Removing stale clone...")
         import shutil
         shutil.rmtree(repo_dir, ignore_errors=True)
+    if os.path.exists("/kaggle/working/.sumo_db"):
+        import shutil
+        shutil.rmtree("/kaggle/working/.sumo_db", ignore_errors=True)
         
     os.makedirs("/kaggle/working", exist_ok=True)
     subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=False)
@@ -453,8 +456,12 @@ try:
     print(f"Executing command: {' '.join(cmd)}\n")
     print("-" * 80)
     
+    # Enforce PYTHONPATH to prevent loading stale PyPI packages from /opt/conda
+    env = os.environ.copy()
+    env["PYTHONPATH"] = "/kaggle/working/SumoSpace"
+    
     # Run the benchmark and stream output
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd="/kaggle/working/SumoSpace")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd="/kaggle/working/SumoSpace", env=env)
     for line in proc.stdout:
         print(line, end="")
     proc.wait()
