@@ -45,6 +45,7 @@ class TaskResult:
     committee_mode: str
     success:        bool
     score:          float          # 0.0 to 1.0
+    llm_score:      float = 0.0    # 0.0 to 1.0 (graded by LLM judge)
     duration_s:     float
     error:          str = ""
     tool_failures:  int = 0
@@ -285,6 +286,52 @@ TASKS = [
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
+async def evaluate_with_llm_judge(task: dict, output_text: str, workspace: Path, provider: str, model: str) -> float:
+    """Uses a fresh, disabled-committee kernel to evaluate the agent's performance."""
+    from sumospace.kernel import SumoKernel
+    from sumospace.settings import SumoSettings
+    import re
+    
+    file_contents = ""
+    for py_file in workspace.glob("*.py"):
+        if py_file.is_file():
+            content = py_file.read_text()
+            file_contents += f"\n--- {py_file.name} ---\n{content[:2000]}\n"
+            
+    prompt = f\"\"\"
+You are an expert python grading assistant.
+Task: {task['prompt']}
+
+Final Answer from Agent:
+{output_text}
+
+Current Workspace Files (truncated):
+{file_contents}
+
+Grade the agent's work from 0.0 to 1.0. 
+1.0 means perfect completion. 0.0 means complete failure.
+Output ONLY the float number, nothing else.
+\"\"\"
+    
+    settings = SumoSettings(
+        provider=provider, 
+        model=model, 
+        committee_enabled=False,
+        rag_enabled=False,
+        memory_enabled=False,
+        execution_enabled=False,
+    )
+    
+    try:
+        async with SumoKernel(settings=settings) as kernel:
+            trace = await kernel.run(prompt)
+            match = re.search(r'0\.\d+|1\.0', trace.final_answer)
+            if match:
+                return float(match.group())
+    except Exception as e:
+        print(f"LLM judge error: {e}")
+    return 0.0
+
 async def check_provider(provider: str, model: str):
     if provider == "ollama":
         import httpx
@@ -350,29 +397,37 @@ async def run_single_task(
         duration = time.time() - start
 
         # Verify
-        success, score, notes = False, 0.0, "Failed to run verification"
+        success, det_score, notes = False, 0.0, "Failed to run verification"
         try:
             if not error_msg:
-                if task.get("needs_original"):
-                    success, score, notes = task["verifier"](tmp_ws, FIXTURES_DIR)
-                elif task["name"] == "explain_codebase":
-                    success, score, notes = task["verifier"](output_text, tmp_ws)
+                if task["needs_original"]:
+                    target_file = tmp_ws / str(task["file"])
+                    orig_file = Path(FIXTURES_DIR) / str(task["file"])
+                    success, det_score, notes = task["verifier"](target_file, orig_file)
                 else:
-                    success, score, notes = task["verifier"](tmp_ws)
+                    if task["file"] is None:
+                        success, det_score, notes = task["verifier"](output_text, tmp_ws)
+                    else:
+                        success, det_score, notes = task["verifier"](tmp_ws)
             else:
                 notes = error_msg
         except Exception as e:
             error_msg = f"Verifier exception: {e}"
             notes = error_msg
 
+        # Run LLM judge
+        llm_score = await evaluate_with_llm_judge(task, output_text, tmp_ws, provider, model)
+
         return TaskResult(
             task_name=task["name"],
             committee_mode=committee_mode,
             success=success,
-            score=score,
+            score=det_score,
+            llm_score=llm_score,
             duration_s=round(duration, 2),
             error=error_msg,
             tool_failures=tool_failures,
+            retries=0,
             steps_executed=steps_executed,
             notes=notes
         )
@@ -466,7 +521,7 @@ def generate_report(run: BenchmarkRun) -> str:
         for m in modes:
             res = next((r for r in run.results if r.task_name == t and r.committee_mode == m), None)
             if res:
-                row.append(f"{res.score*100:.0f}%")
+                row.append(f"Det: {res.score*100:.0f}%<br>LLM: {res.llm_score*100:.0f}%")
             else:
                 row.append("-")
         grid_rows.append("| " + " | ".join(row) + " |")
