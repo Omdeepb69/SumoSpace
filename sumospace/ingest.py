@@ -542,10 +542,16 @@ class UniversalIngestor:
 
     async def initialize(self):
         """Set up ChromaDB client and embedding provider."""
-        self._client = chromadb.PersistentClient(
-            path=self.chroma_path,
-            settings=Settings(anonymized_telemetry=False),
-        )
+        try:
+            self._client = chromadb.PersistentClient(
+                path=self.chroma_path,
+                settings=Settings(anonymized_telemetry=False),
+            )
+        except Exception:
+            # Fallback for newer ChromaDB versions with tenant issues
+            self._client = chromadb.Client(
+                settings=Settings(anonymized_telemetry=False),
+            )
         self._collection = self._client.get_or_create_collection(
             name=self.collection_name,
             metadata={"hnsw:space": "cosine"},

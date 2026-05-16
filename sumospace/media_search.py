@@ -68,7 +68,10 @@ class MultimodalSearchEngine:
     def __init__(self, settings: SumoSettings):
         self._settings = settings
         self._db_path  = Path(settings.chroma_base) / "multimodal"
-        self._client   = chromadb.PersistentClient(path=str(self._db_path))
+        try:
+            self._client   = chromadb.PersistentClient(path=str(self._db_path))
+        except Exception:
+            self._client   = chromadb.Client()
         self._cols: dict[str, chromadb.Collection] = {}
 
         # Lazy embedders

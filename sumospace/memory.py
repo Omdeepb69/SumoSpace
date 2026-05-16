@@ -111,10 +111,15 @@ class EpisodicMemory:
         self.working = WorkingMemory(max_size=working_memory_size)
 
     async def initialize(self):
-        self._client = chromadb.PersistentClient(
-            path=self.chroma_path,
-            settings=Settings(anonymized_telemetry=False),
-        )
+        try:
+            self._client = chromadb.PersistentClient(
+                path=self.chroma_path,
+                settings=Settings(anonymized_telemetry=False),
+            )
+        except Exception:
+            self._client = chromadb.Client(
+                settings=Settings(anonymized_telemetry=False),
+            )
         self._collection = self._client.get_or_create_collection(
             name="episodic_memory",
             metadata={"hnsw:space": "cosine"},

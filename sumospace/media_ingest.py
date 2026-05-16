@@ -57,7 +57,10 @@ class MultimodalIngestor:
         self._db_path.mkdir(parents=True, exist_ok=True)
 
         # ChromaDB client
-        self._client = chromadb.PersistentClient(path=str(self._db_path))
+        try:
+            self._client = chromadb.PersistentClient(path=str(self._db_path))
+        except Exception:
+            self._client = chromadb.Client()
 
         # Collections — created lazily
         self._cols: dict[str, chromadb.Collection] = {}

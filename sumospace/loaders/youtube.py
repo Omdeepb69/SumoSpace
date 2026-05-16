@@ -76,6 +76,16 @@ class YouTubeLoader:
         loop = asyncio.get_event_loop()
 
         def _fetch():
+            # Handle both old (0.x) and new (1.0+) youtube-transcript-api versions
+            try:
+                # New API (1.0+): instance method returning FetchedTranscript
+                api = YouTubeTranscriptApi()
+                transcript = api.fetch(video_id, languages=self.languages)
+                # FetchedTranscriptSnippet has .text attribute, not dict access
+                return [{"text": snippet.text} for snippet in transcript]
+            except (TypeError, AttributeError):
+                pass
+            # Old API (0.x): class method returning list of dicts
             return YouTubeTranscriptApi.get_transcript(video_id, languages=self.languages)
 
         transcript_entries = await loop.run_in_executor(None, _fetch)
