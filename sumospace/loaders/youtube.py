@@ -76,10 +76,7 @@ class YouTubeLoader:
         loop = asyncio.get_event_loop()
 
         def _fetch():
-            api = YouTubeTranscriptApi()
-            transcript = api.fetch(video_id, languages=self.languages)
-            # FetchedTranscript is iterable, yields snippet dicts
-            return [s for s in transcript]
+            return YouTubeTranscriptApi.get_transcript(video_id, languages=self.languages)
 
         transcript_entries = await loop.run_in_executor(None, _fetch)
 

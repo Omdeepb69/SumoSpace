@@ -68,11 +68,15 @@ try:
     time.sleep(5)
     
     print("\n3. Cloning SumoSpace repository...")
-    if not os.path.exists("/kaggle/working/SumoSpace"):
-        os.makedirs("/kaggle/working", exist_ok=True)
-        subprocess.run("git clone https://github.com/Omdeepb69/SumoSpace /kaggle/working/SumoSpace", shell=True, check=False)
-    else:
-        print("Repo already exists at /kaggle/working/SumoSpace")
+    print("\n3. Cloning fresh SumoSpace repository...")
+    repo_dir = "/kaggle/working/SumoSpace"
+    if os.path.exists(repo_dir):
+        print("Removing stale clone...")
+        import shutil
+        shutil.rmtree(repo_dir, ignore_errors=True)
+        
+    os.makedirs("/kaggle/working", exist_ok=True)
+    subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=False)
         
     print("\n4. Installing SumoSpace from cloned repository...")
     subprocess.run("pip install -e /kaggle/working/SumoSpace[multimodal,loaders]", shell=True, check=False)
