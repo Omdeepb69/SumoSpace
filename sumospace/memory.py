@@ -116,14 +116,18 @@ class EpisodicMemory:
                 path=self.chroma_path,
                 settings=Settings(anonymized_telemetry=False),
             )
+            self._collection = self._client.get_or_create_collection(
+                name="episodic_memory",
+                metadata={"hnsw:space": "cosine"},
+            )
         except Exception:
             self._client = chromadb.Client(
                 settings=Settings(anonymized_telemetry=False),
             )
-        self._collection = self._client.get_or_create_collection(
-            name="episodic_memory",
-            metadata={"hnsw:space": "cosine"},
-        )
+            self._collection = self._client.get_or_create_collection(
+                name="episodic_memory",
+                metadata={"hnsw:space": "cosine"},
+            )
         await self._init_embedder()
 
     async def _init_embedder(self):

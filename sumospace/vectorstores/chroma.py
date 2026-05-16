@@ -35,16 +35,21 @@ class ChromaVectorStore(BaseVectorStore):
                     path=self._settings.chroma_base,
                     settings=Settings(anonymized_telemetry=False),
                 )
+                collection_name = getattr(self._settings, "chroma_collection", "sumospace")
+                self._collection = self._client.get_or_create_collection(
+                    name=collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                )
             except Exception:
                 # Fallback for newer ChromaDB versions with tenant issues
                 self._client = chromadb.Client(
                     settings=Settings(anonymized_telemetry=False),
                 )
-            collection_name = getattr(self._settings, "chroma_collection", "sumospace")
-            self._collection = self._client.get_or_create_collection(
-                name=collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
+                collection_name = getattr(self._settings, "chroma_collection", "sumospace")
+                self._collection = self._client.get_or_create_collection(
+                    name=collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                )
 
     async def add_documents(self, documents: list[VectorDocument]) -> None:
         self._ensure_client()
