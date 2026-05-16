@@ -67,19 +67,19 @@ try:
     print("Waiting 5 seconds for Ollama to boot...")
     time.sleep(5)
     
-    print("\n3. Installing SumoSpace...")
-    subprocess.run("pip install sumospace sumospace[multimodal] sumospace[loaders]", shell=True, check=False)
-    
-    print("\n4. Pulling models (llama3:8b and llama3:8b)...")
-    subprocess.run("ollama pull llama3:8b", shell=True, check=False)
-    subprocess.run("ollama pull llama3:8b", shell=True, check=False)
-    
-    print("\n5. Cloning SumoSpace repository for fixtures...")
+    print("\n3. Cloning SumoSpace repository...")
     if not os.path.exists("/kaggle/working/SumoSpace"):
         os.makedirs("/kaggle/working", exist_ok=True)
         subprocess.run("git clone https://github.com/Omdeepb69/SumoSpace /kaggle/working/SumoSpace", shell=True, check=False)
     else:
         print("Repo already exists at /kaggle/working/SumoSpace")
+        
+    print("\n4. Installing SumoSpace from cloned repository...")
+    subprocess.run("pip install -e /kaggle/working/SumoSpace /kaggle/working/SumoSpace[multimodal] /kaggle/working/SumoSpace[loaders]", shell=True, check=False)
+    
+    print("\n5. Pulling models (llama3:8b and llama3:8b)...")
+    subprocess.run("ollama pull llama3:8b", shell=True, check=False)
+    subprocess.run("ollama pull llama3:8b", shell=True, check=False)
 
     from sumospace import SumoKernel, SumoSettings
     from sumospace.tools import BaseTool, ToolResult
@@ -251,15 +251,14 @@ async def section5():
     try:
         print("Querying GitHub repo (tiangolo/fastapi) using GitHubLoader...")
         gh_loader = GitHubLoader()
-        # Ensure we only fetch a tiny amount to prevent massive downloads
-        gh_chunks = gh_loader.load("https://github.com/tiangolo/fastapi", max_files=5)
+        gh_chunks = await gh_loader.load("https://github.com/tiangolo/fastapi")
         print(f"Loaded {len(gh_chunks)} chunks from GitHub.")
         if gh_chunks:
             print(f"Preview: {gh_chunks[0].text[:100]}...")
         
         print("\nQuerying YouTube transcript using YouTubeLoader...")
         yt_loader = YouTubeLoader()
-        yt_chunks = yt_loader.load("https://www.youtube.com/watch?v=kJQP7kiw5Fk")
+        yt_chunks = await yt_loader.load("https://www.youtube.com/watch?v=kJQP7kiw5Fk")
         print(f"Loaded {len(yt_chunks)} chunks from YouTube.")
         if yt_chunks:
             print(f"Preview: {yt_chunks[0].text[:100]}...")
