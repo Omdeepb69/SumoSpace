@@ -89,6 +89,12 @@ try:
     import sys
     if "/kaggle/working/SumoSpace" not in sys.path:
         sys.path.insert(0, "/kaggle/working/SumoSpace")
+        
+    # Force Jupyter to drop cached modules from previous cell runs
+    import sys
+    for mod in list(sys.modules.keys()):
+        if mod == "sumospace" or mod.startswith("sumospace."):
+            del sys.modules[mod]
 
     from sumospace import SumoKernel, SumoSettings
     from sumospace.tools import BaseTool, ToolResult
