@@ -75,11 +75,14 @@ try:
         print("Repo already exists at /kaggle/working/SumoSpace")
         
     print("\n4. Installing SumoSpace from cloned repository...")
-    subprocess.run("pip install -e /kaggle/working/SumoSpace /kaggle/working/SumoSpace[multimodal] /kaggle/working/SumoSpace[loaders]", shell=True, check=False)
+    subprocess.run("pip install -e /kaggle/working/SumoSpace[multimodal,loaders]", shell=True, check=False)
     
-    print("\n5. Pulling models (llama3:8b and llama3:8b)...")
+    print("\n5. Pulling models (llama3:8b)...")
     subprocess.run("ollama pull llama3:8b", shell=True, check=False)
-    subprocess.run("ollama pull llama3:8b", shell=True, check=False)
+
+    import sys
+    if "/kaggle/working/SumoSpace" not in sys.path:
+        sys.path.insert(0, "/kaggle/working/SumoSpace")
 
     from sumospace import SumoKernel, SumoSettings
     from sumospace.tools import BaseTool, ToolResult
