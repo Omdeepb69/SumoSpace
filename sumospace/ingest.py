@@ -22,6 +22,7 @@ from typing import Any, Iterator
 
 import chromadb
 from chromadb.config import Settings
+from sumospace.vectorstores.base import BaseVectorStore
 from rich.console import Console
 
 console = Console()
@@ -520,6 +521,7 @@ class UniversalIngestor:
 
     def __init__(
         self,
+        vector_store: BaseVectorStore | None = None,
         chroma_path: str = ".sumo_db",
         collection_name: str = "sumospace",
         embedding_provider: str = "local",        # local is default — zero API key
@@ -527,6 +529,7 @@ class UniversalIngestor:
         batch_size: int = 50,
         max_chunks: int | None = None,
     ):
+        self.vector_store = vector_store
         self.chroma_path = chroma_path
         self.collection_name = collection_name
         self.embedding_provider = embedding_provider
@@ -542,24 +545,29 @@ class UniversalIngestor:
 
     async def initialize(self):
         """Set up ChromaDB client and embedding provider."""
-        try:
-            self._client = chromadb.PersistentClient(
-                path=self.chroma_path,
-                settings=Settings(anonymized_telemetry=False),
-            )
-            self._collection = self._client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
-        except Exception:
-            # Fallback for newer ChromaDB versions with tenant issues
-            self._client = chromadb.Client(
-                settings=Settings(anonymized_telemetry=False),
-            )
-            self._collection = self._client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
+        if self.vector_store:
+            pass
+        else:
+            rag_path = str(Path(self.chroma_path) / "rag")
+            Path(rag_path).mkdir(parents=True, exist_ok=True)
+            try:
+                self._client = chromadb.PersistentClient(
+                    path=rag_path,
+                    settings=Settings(anonymized_telemetry=False),
+                )
+                self._collection = self._client.get_or_create_collection(
+                    name=self.collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                )
+            except Exception:
+                # Fallback for newer ChromaDB versions with tenant issues
+                self._client = chromadb.EphemeralClient(
+                    settings=Settings(anonymized_telemetry=False),
+                )
+                self._collection = self._client.get_or_create_collection(
+                    name=self.collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                )
 
         # Embedder selection — local is the default, cloud providers are explicit opt-in
         if self.embedding_provider in ("local", "sentence-transformers", "st"):
@@ -607,9 +615,18 @@ class UniversalIngestor:
             
         content_hash = self._file_hash(path)
 
-        if not force and self._collection is not None:
-            try:
-                existing = self._collection.get(
+        if not force:
+            if self.vector_store is not None:
+                import logging
+                logger = logging.getLogger("sumospace.ingest")
+                logger.warning(
+                    "Incremental ingest (skip unchanged files) is not supported "
+                    "with external vector_store. All files will be re-ingested. "
+                    "Use vector_store='chroma' for incremental ingest."
+                )
+            elif self._collection is not None:
+                try:
+                    existing = self._collection.get(
                     where={"source_hash": content_hash},
                     limit=1,
                 )
@@ -699,6 +716,9 @@ class UniversalIngestor:
                     ))
 
         # Step 3: Cleanup — remove chunks for files that no longer exist on disk
+        if self.vector_store is not None:
+            return results
+
         try:
             # Get all sources in the current collection
             all_metadatas = self._collection.get(include=["metadatas"])["metadatas"]
@@ -725,6 +745,22 @@ class UniversalIngestor:
     ) -> list[dict[str, Any]]:
         """Semantic search over ingested content."""
         embeddings = await self._embedder.embed([query_text])
+        
+        if self.vector_store:
+            vs_results = await self.vector_store.search(
+                query_embedding=embeddings[0],
+                top_k=top_k,
+                where=where,
+            )
+            return [
+                {
+                    "text": r.text,
+                    "metadata": r.metadata,
+                    "score": r.score,
+                }
+                for r in vs_results
+            ]
+
         query_kwargs: dict = {
             "query_embeddings": embeddings,
             "n_results": top_k,
@@ -753,7 +789,7 @@ class UniversalIngestor:
         async with self._lock:
             # Quota check before upsert
             if self.max_chunks is not None:
-                current = self._collection.count()
+                current = await self.vector_store.count() if self.vector_store else self._collection.count()
                 if current + len(chunks) > self.max_chunks:
                     raise QuotaExceededError(
                         current=current,
@@ -766,12 +802,21 @@ class UniversalIngestor:
                 try:
                     texts = [c.text for c in batch]
                     embeddings = await self._embedder.embed(texts)
-                    self._collection.upsert(
-                        ids=[c.id for c in batch],
-                        documents=texts,
-                        embeddings=embeddings,
-                        metadatas=[c.metadata for c in batch],
-                    )
+                    
+                    if self.vector_store:
+                        from sumospace.vectorstores.base import VectorDocument
+                        docs = [
+                            VectorDocument(id=c.id, text=t, embedding=e, metadata=c.metadata)
+                            for c, t, e in zip(batch, texts, embeddings)
+                        ]
+                        await self.vector_store.add_documents(docs)
+                    else:
+                        self._collection.upsert(
+                            ids=[c.id for c in batch],
+                            documents=texts,
+                            embeddings=embeddings,
+                            metadatas=[c.metadata for c in batch],
+                        )
                 except Exception as e:
                     errors.append(str(e))
 

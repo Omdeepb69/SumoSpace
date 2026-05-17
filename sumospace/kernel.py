@@ -300,7 +300,11 @@ class SumoKernel:
 
             # 5. Ingestor + RAG
             if getattr(cfg, "rag_enabled", True):
+                from sumospace.vectorstores import get_vector_store
+                vs = get_vector_store(cfg)
+                
                 self._ingestor = UniversalIngestor(
+                    vector_store=vs,
                     chroma_path=resolved_chroma,
                     embedding_provider=cfg.embedding_provider,
                     embedding_model=cfg.embedding_model,

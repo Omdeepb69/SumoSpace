@@ -75,6 +75,7 @@ class ExecutionPlan:
     risks: list[str] = field(default_factory=list)
     approved: bool = False
     approval_notes: str = ""
+    raw_output: str = ""
 
 
 @dataclass
@@ -223,12 +224,14 @@ class PlannerAgent(BaseAgent):
                 steps=steps,
                 reasoning=data.get("reasoning", ""),
                 estimated_duration_s=float(data.get("estimated_duration_s", 0)),
+                raw_output=raw,
             ), raw_clean
         except Exception:
             return ExecutionPlan(
                 task=task,
                 steps=[],
                 reasoning="Plan parsing failed; halting to prevent unsafe fallback.",
+                raw_output=raw,
             ), raw_clean
 
 
@@ -358,6 +361,7 @@ class ResolverAgent(BaseAgent):
                     risks=risks,
                     approved=True,
                     approval_notes=data.get("approval_notes", ""),
+                    raw_output=raw,
                 )
                 return plan, True, plan.approval_notes, raw_clean
             except Exception as e:

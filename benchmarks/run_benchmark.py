@@ -353,6 +353,12 @@ async def run_single_task(
                 print(f"  DEBUG: tools called: {called_tools}")
                 print(f"  DEBUG: edit_file/replace called: {any('replace' in t or 'edit' in t or 'write' in t for t in called_tools)}")
                 
+                print(f"  DEBUG: final_answer preview: {(getattr(trace, 'final_answer', '') or '')[:100]}")
+                print(f"  DEBUG: plan steps: {[s.tool for s in (trace.plan.steps if getattr(trace, 'plan', None) else [])]}")
+                print(f"  DEBUG: plan reasoning: {(trace.plan.reasoning if getattr(trace, 'plan', None) else 'NO PLAN')[:100]}")
+                raw_output = getattr(trace.plan, 'raw_output', '') if getattr(trace, 'plan', None) else ''
+                print(f"  DEBUG: raw provider output (first 300 chars): {raw_output[:300]}")
+                
                 tool_calls = len(getattr(trace, "tool_calls", []))
                 tool_failures = sum(1 for tc in getattr(trace, "tool_calls", []) if not getattr(tc, "success", True))
         except Exception as e:

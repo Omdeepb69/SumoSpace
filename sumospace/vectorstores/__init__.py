@@ -24,8 +24,7 @@ def get_vector_store(settings) -> BaseVectorStore:
     backend = settings.vector_store
 
     if backend == "chroma":
-        from sumospace.vectorstores.chroma import ChromaVectorStore
-        return ChromaVectorStore(settings)
+        return None
     elif backend == "faiss":
         from sumospace.vectorstores.faiss import FAISSVectorStore
         return FAISSVectorStore(settings)
