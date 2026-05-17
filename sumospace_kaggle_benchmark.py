@@ -81,7 +81,7 @@ try:
     subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=False)
         
     print("\n4. Installing SumoSpace from cloned repository...")
-    subprocess.run("pip install -e /kaggle/working/SumoSpace[multimodal,loaders]", shell=True, check=False)
+    subprocess.run("pip install -e /kaggle/working/SumoSpace[media,loaders,faiss]", shell=True, check=False)
     
     print("\n5. Pulling models (llama3:8b)...")
     subprocess.run("ollama pull llama3:8b", shell=True, check=False)
