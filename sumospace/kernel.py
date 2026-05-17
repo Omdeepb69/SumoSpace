@@ -228,6 +228,13 @@ class SumoKernel:
             endpoint=self.settings.telemetry_endpoint
         )
 
+    @property
+    def tools(self) -> ToolRegistry:
+        """Access the internal ToolRegistry."""
+        if self._tools is None:
+            raise RuntimeError("Kernel not booted. Call boot() or use async with first.")
+        return self._tools
+
     async def boot(self):
         """Initialise all subsystems. Called automatically by async context manager."""
         if self._initialized:
