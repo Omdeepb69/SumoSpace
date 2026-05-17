@@ -354,6 +354,20 @@ class SumoKernel:
             except Exception:
                 pass
 
+        if getattr(self, '_ingestor', None) is not None:
+            try:
+                client = self._ingestor._client
+                if client and hasattr(client, '_system'):
+                    client._system.stop()
+            except Exception:
+                pass
+
+        try:
+            import chromadb
+            chromadb.api.client.SharedSystemClient.clear_system_cache()
+        except Exception:
+            pass
+
         if cfg := self.settings:
             if cfg.verbose:
                 console.print("[dim]Kernel shutdown[/dim]")

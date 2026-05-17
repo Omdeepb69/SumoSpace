@@ -656,5 +656,15 @@ class ToolRegistry:
                 error=f"Invalid parameters for '{name}': {error_msg}",
                 metadata={"validation_error": True},
             )
-
-        return await tool.run(**kwargs)
+        try:
+            return await tool.run(**kwargs)
+        except TypeError as e:
+            return ToolResult(
+                tool=name, success=False, output="",
+                error=f"Parameter mismatch for '{name}': {e}",
+            )
+        except Exception as e:
+            return ToolResult(
+                tool=name, success=False, output="",
+                error=f"Execution error in '{name}': {e}",
+            )
