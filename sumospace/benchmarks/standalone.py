@@ -45,8 +45,8 @@ class TaskResult:
     committee_mode: str
     success:        bool
     score:          float          # 0.0 to 1.0
-    llm_score:      float = 0.0    # 0.0 to 1.0 (graded by LLM judge)
     duration_s:     float
+    llm_score:      float = 0.0    # 0.0 to 1.0 (graded by LLM judge)
     error:          str = ""
     tool_failures:  int = 0
     retries:        int = 0

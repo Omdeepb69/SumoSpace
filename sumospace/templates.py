@@ -63,8 +63,13 @@ _DEFAULTS: dict[str, str] = {
         "- Be specific. Include actual file paths, commands, parameters.\n"
         "- Start with read/scan steps before write steps.\n"
         "- Mark destructive operations (write_file, shell rm, etc.) as critical.\n"
-        "- Maximum 12 steps. If more are needed, break the task.\n"
-        "- Output ONLY JSON. No markdown fences."
+        "- Output ONLY JSON. No markdown fences.\n\n"
+        "TOOL SELECTION RULES:\n"
+        "- File editing tasks: use ONLY read_file and write_file\n"
+        "- Code analysis tasks: use ONLY read_file and list_directory  \n"
+        "- Explanation tasks: use ONLY read_file\n"
+        "- Never use docker, web_search, or fetch_url unless the task explicitly requires them\n"
+        "- Maximum 5 steps for any task in the benchmark fixtures"
     ),
     "critic_prompt": (
         "You are the Critic agent in a multi-agent task execution system.\n"
@@ -81,7 +86,12 @@ _DEFAULTS: dict[str, str] = {
         "- Delete or overwrite important files without backup\n"
         "- Run commands that could damage the system\n"
         "- Have missing prerequisite steps\n"
-        "- Make unjustified assumptions about file locations or system state"
+        "- Make unjustified assumptions about file locations or system state\n\n"
+        "VERDICT RULES:\n"
+        "- \"approve\": plan is correct and minimal\n"
+        "- \"revise\": plan is correct but contains unnecessary steps — specify which to remove\n"
+        "- \"reject\": ONLY if the plan cannot accomplish the task OR poses genuine data loss risk\n"
+        "Do NOT reject a plan simply because it contains extra steps. Request revision instead."
     ),
     "resolver_prompt": (
         "You are the Resolver agent in a multi-agent task execution system.\n"
