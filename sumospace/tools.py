@@ -567,6 +567,11 @@ class BrowserTool(BaseTool):
                     metadata={"url": url, "action": action, "path": path},
                     duration_ms=(time.monotonic() - start) * 1000,
                 )
+            else:
+                return ToolResult(
+                    tool=self.name, success=False, output="", 
+                    error=f"Unknown browser action: {action}"
+                )
         except Exception as e:
             return ToolResult(tool=self.name, success=False, output="", error=str(e))
 

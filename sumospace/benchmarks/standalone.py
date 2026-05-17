@@ -298,7 +298,7 @@ async def evaluate_with_llm_judge(task: dict, output_text: str, workspace: Path,
             content = py_file.read_text()
             file_contents += f"\n--- {py_file.name} ---\n{content[:2000]}\n"
             
-    prompt = f\"\"\"
+    prompt = f"""
 You are an expert python grading assistant.
 Task: {task['prompt']}
 
@@ -311,7 +311,7 @@ Current Workspace Files (truncated):
 Grade the agent's work from 0.0 to 1.0. 
 1.0 means perfect completion. 0.0 means complete failure.
 Output ONLY the float number, nothing else.
-\"\"\"
+"""
     
     settings = SumoSettings(
         provider=provider, 
