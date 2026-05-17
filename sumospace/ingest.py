@@ -627,18 +627,18 @@ class UniversalIngestor:
             elif self._collection is not None:
                 try:
                     existing = self._collection.get(
-                    where={"source_hash": content_hash},
-                    limit=1,
-                )
-                if existing and existing["ids"]:
-                    return IngestionResult(
-                        source=str(path),
-                        chunks_created=0,
-                        loader_used="skipped (unchanged)",
-                        duration_ms=(time.monotonic() - start) * 1000,
+                        where={"source_hash": content_hash},
+                        limit=1,
                     )
-            except Exception:
-                pass  # If metadata query fails, proceed with full ingest
+                    if existing and existing["ids"]:
+                        return IngestionResult(
+                            source=str(path),
+                            chunks_created=0,
+                            loader_used="skipped (unchanged)",
+                            duration_ms=(time.monotonic() - start) * 1000,
+                        )
+                except Exception:
+                    pass  # If metadata query fails, proceed with full ingest
 
         loader = self._get_loader(path)
         chunks = await loader.load(path)
