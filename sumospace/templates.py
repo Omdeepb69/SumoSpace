@@ -65,7 +65,7 @@ _DEFAULTS: dict[str, str] = {
         "- Mark destructive operations (write_file, shell rm, etc.) as critical.\n"
         "- Output ONLY JSON. No markdown fences.\n\n"
         "TOOL SELECTION RULES:\n"
-        "- File editing tasks: use ONLY read_file and write_file\n"
+        "- File editing tasks: use replace_text to modify specific lines. ONLY use write_file if you are creating a completely new file.\n"
         "- Code analysis tasks: use ONLY read_file and list_directory  \n"
         "- Explanation tasks: use ONLY read_file\n"
         "- Never use docker, web_search, or fetch_url unless the task explicitly requires them\n"

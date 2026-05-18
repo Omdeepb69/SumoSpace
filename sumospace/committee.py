@@ -18,40 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-def _clean_json(raw: str) -> str:
-    """Strip markdown fences and leading/trailing noise before parsing."""
-    raw = raw.strip()
-    
-    # Strip markdown fences first
-    if "```" in raw:
-        raw = re.sub(r"```(?:json)?\s*", "", raw)
-        raw = raw.replace("```", "")
-    
-    # Find the JSON object boundaries
-    # Search for first { that starts a valid object
-    start = raw.find("{")
-    if start == -1:
-        return raw
-    
-    # Find the matching closing brace
-    depth = 0
-    end = start
-    for i, char in enumerate(raw[start:], start):
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-                
-    # If the LLM generated malformed JSON (mismatched braces), fallback to the last }
-    if depth != 0:
-        end = raw.rfind("}")
-        if end < start:
-            return raw
-    
-    return raw[start:end + 1]
+from .parsing import parse_llm_json
 
 
 # ─── Data Models ─────────────────────────────────────────────────────────────
@@ -217,17 +184,14 @@ class PlannerAgent(BaseAgent):
         return self._parse_plan(task, last_raw)
 
     def _parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
-        # Strip markdown fences and noise
-        raw_clean = _clean_json(raw)
-        
         # DEBUG LOGGING
         import os
         if os.environ.get("DEBUG_PLANNER"):
             with open("/tmp/planner_debug.log", "a") as f:
-                f.write(f"\n--- RAW ---\n{raw}\n--- CLEAN ---\n{raw_clean}\n")
+                f.write(f"\n--- RAW ---\n{raw}\n")
         
         try:
-            data = json.loads(raw_clean)
+            data, repair_used = parse_llm_json(raw, expected_keys=["steps"])
             steps = [
                 ExecutionStep(
                     step_number=s.get("step_number", i + 1),
@@ -245,14 +209,14 @@ class PlannerAgent(BaseAgent):
                 reasoning=data.get("reasoning", ""),
                 estimated_duration_s=float(data.get("estimated_duration_s", 0)),
                 raw_output=raw,
-            ), raw_clean
+            ), raw
         except Exception:
             return ExecutionPlan(
                 task=task,
                 steps=[],
                 reasoning="Plan parsing failed; halting to prevent unsafe fallback.",
                 raw_output=raw,
-            ), raw_clean
+            ), raw
 
 
 class CriticAgent(BaseAgent):
@@ -289,14 +253,13 @@ class CriticAgent(BaseAgent):
                 max_tokens=1024,
             )
             last_raw = raw
-            raw_clean = _clean_json(raw)
             try:
-                data = json.loads(raw_clean)
+                data, _ = parse_llm_json(raw, expected_keys=["verdict"])
                 verdict = data.get("verdict", "approve")
                 reason = data.get("verdict_reason", "")
                 risks = data.get("risks", [])
                 blockers = data.get("blockers", [])
-                return verdict, reason, risks, blockers, raw_clean
+                return verdict, reason, risks, blockers, raw
             except Exception:
                 if attempt == 2:
                     return "approve", "Critique parsing failed", [], [], last_raw
@@ -348,9 +311,8 @@ class ResolverAgent(BaseAgent):
                 max_tokens=2048,
             )
 
-            raw_clean = _clean_json(raw)
             try:
-                data = json.loads(raw_clean)
+                data, _ = parse_llm_json(raw, expected_keys=["approved"])
                 approved = bool(data.get("approved", False))
 
                 if not approved:
@@ -377,7 +339,7 @@ class ResolverAgent(BaseAgent):
                     approval_notes=data.get("approval_notes", ""),
                     raw_output=raw,
                 )
-                return plan, True, plan.approval_notes, raw_clean
+                return plan, True, plan.approval_notes, raw
             except Exception as e:
                 if attempt < 2:
                     continue
