@@ -465,6 +465,21 @@ try:
     env = os.environ.copy()
     env["PYTHONPATH"] = "/kaggle/working/SumoSpace"
     
+    # Inject Domain Context to prevent over-planning and over-rejecting
+    env["SUMO_GLOBAL_DOMAIN_CONTEXT"] = "This is a Python project."
+    env["SUMO_PLANNER_DOMAIN_CONTEXT"] = (
+        "For file editing tasks: use ONLY read_file and write_file.\n"
+        "For code analysis: use ONLY read_file and list_directory.\n"
+        "Never use docker, web_search, or fetch_url unless explicitly required.\n"
+        "Maximum 5 steps for simple tasks."
+    )
+    env["SUMO_CRITIC_DOMAIN_CONTEXT"] = (
+        "Approve plans that only use read_file and write_file for file editing.\n"
+        "Flag HIGH RISK: any plan touching auth/ or security/.\n"
+        "Flag LOW RISK: docstrings, type hints, variable renames.\n"
+        "Use 'revise' not 'reject' for plans with unnecessary steps."
+    )
+    
     # Run the benchmark and stream output
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, cwd="/kaggle/working/SumoSpace", env=env)
     for line in proc.stdout:
