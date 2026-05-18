@@ -175,7 +175,7 @@ class DomainContext:
         if framework in ("FastAPI", "Django", "Flask"):
             planner_ctx = (
                 "This is a Python project.\n"
-                "For file editing tasks: use ONLY read_file and write_file.\n"
+                "For file editing tasks: use replace_text to modify specific lines. ONLY use write_file if you are creating a completely new file.\n"
                 "For code analysis: use ONLY read_file and list_directory.\n"
                 "Never use docker, web_search, or fetch_url unless explicitly required.\n"
                 "Maximum 5 steps for simple tasks."
@@ -183,7 +183,7 @@ class DomainContext:
         elif framework in ("Next.js", "React", "Vue.js"):
             planner_ctx = (
                 "This is a JavaScript/TypeScript project.\n"
-                "For file editing tasks: use ONLY read_file and write_file.\n"
+                "For file editing tasks: use replace_text to modify specific lines. ONLY use write_file if you are creating a completely new file.\n"
                 "For running builds/tests: use shell with npm/yarn commands.\n"
                 "Never use docker or fetch_url unless explicitly required.\n"
                 "Maximum 5 steps for simple tasks."

@@ -224,6 +224,71 @@ class SearchFilesTool(BaseTool):
             return ToolResult(tool=self.name, success=False, output="", error=str(e))
 
 
+class ReplaceTextTool(BaseTool):
+    """Surgical file editing tool that replaces an exact snippet of text."""
+    name = "replace_text"
+    description = "Replace an exact block of text in a file. Safer than write_file for small edits."
+
+    def __init__(self, snapshot_manager=None, run_id: str | None = None):
+        self._snapshot_manager = snapshot_manager
+        self._run_id = run_id
+
+    async def run(self, path: str, old_text: str, new_text: str, **_) -> ToolResult:
+        import time
+        start = time.monotonic()
+        try:
+            p = Path(path)
+            if not p.exists():
+                return ToolResult(tool=self.name, success=False, output="", error=f"File not found: {path}")
+
+            # Normalize line endings to prevent brittle LLM serialization failures
+            content = p.read_text(encoding="utf-8").replace("\r\n", "\n")
+            search_text = old_text.replace("\r\n", "\n")
+            replacement = new_text.replace("\r\n", "\n")
+
+            matches = content.count(search_text)
+            
+            if matches == 0:
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error="old_text not found in file. Ensure exact indentation and matching."
+                )
+            
+            if matches > 1:
+                import re
+                # Find line numbers of all matches for actionable diagnostic
+                lines = [content[:m.start()].count('\n') + 1 for m in re.finditer(re.escape(search_text), content)]
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error=f"old_text matched {matches} locations (lines {lines}). Please provide more surrounding context in old_text to uniquely identify the target."
+                )
+
+            # Snapshot before mutation
+            if self._snapshot_manager and self._run_id:
+                self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
+
+            new_content = content.replace(search_text, replacement, 1)
+
+            # Atomic write
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tf:
+                tf.write(new_content)
+                tmp_path = tf.name
+            shutil.move(tmp_path, str(p))
+
+            # Record after-state
+            if self._snapshot_manager and self._run_id:
+                self._snapshot_manager.record_after(self._run_id, str(p.resolve()))
+
+            return ToolResult(
+                tool=self.name, success=True,
+                output=f"Successfully replaced text in {path}",
+                metadata={"path": path, "replaced_chars": len(search_text)},
+                duration_ms=(time.monotonic() - start) * 1000,
+            )
+        except Exception as e:
+            return ToolResult(tool=self.name, success=False, output="", error=str(e))
+
+
 class PatchFileTool(BaseTool):
     """Apply a unified diff patch to a file."""
     name = "patch_file"
@@ -628,6 +693,7 @@ class ToolRegistry:
         self.register(WriteFileTool())
         self.register(ListDirectoryTool())
         self.register(SearchFilesTool())
+        self.register(ReplaceTextTool())
         self.register(PatchFileTool())
         self.register(ShellTool(workspace=ws))
         self.register(WebSearchTool())

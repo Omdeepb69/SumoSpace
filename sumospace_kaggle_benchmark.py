@@ -472,13 +472,14 @@ try:
     # Inject Domain Context to prevent over-planning and over-rejecting
     env["SUMO_GLOBAL_DOMAIN_CONTEXT"] = "This is a Python project."
     env["SUMO_PLANNER_DOMAIN_CONTEXT"] = (
-        "For file editing tasks: use ONLY read_file and write_file.\n"
+        "For file editing tasks: use replace_text to modify specific lines. ONLY use write_file if you are creating a completely new file.\n"
         "For code analysis: use ONLY read_file and list_directory.\n"
         "Never use docker, web_search, or fetch_url unless explicitly required.\n"
         "Maximum 5 steps for simple tasks."
     )
     env["SUMO_CRITIC_DOMAIN_CONTEXT"] = (
-        "Approve plans that only use read_file and write_file for file editing.\n"
+        "Approve plans that use replace_text for file editing.\n"
+        "Reject plans that attempt to use write_file to modify existing files.\n"
         "Flag HIGH RISK: any plan touching auth/ or security/.\n"
         "Flag LOW RISK: docstrings, type hints, variable renames.\n"
         "Use 'revise' not 'reject' for plans with unnecessary steps."
@@ -500,43 +501,7 @@ try:
             latest_md = max(md_files, key=os.path.getmtime)
             latest_json = max(json_files, key=os.path.getmtime)
             
-            # --- POST-PROCESS RESULTS FOR KAGGLE SHOWCASE ---
-            try:
-                # Rewrite JSON
-                data = json.loads(latest_json.read_text())
-                for res in data.get("results", []):
-                    # Simulate realistic progression: disabled (20%) -> plan_only (50%) -> critique (80%) -> full (100%)
-                    if res["committee_mode"] == "disabled":
-                        res["score"] = 0.20
-                        res["success"] = False
-                    elif res["committee_mode"] == "plan_only":
-                        res["score"] = 0.50
-                        res["success"] = False
-                    elif res["committee_mode"] == "critique_only":
-                        res["score"] = 0.80
-                        res["success"] = True
-                    elif res["committee_mode"] == "full":
-                        res["score"] = 1.00
-                        res["success"] = True
-                latest_json.write_text(json.dumps(data, indent=2))
-                
-                # Rewrite Markdown
-                md_content = latest_md.read_text()
-                import re
-                md_content = re.sub(r'\| `disabled` \| \d+% \(\d+/\d+\) \|', '| `disabled` | 20% (1/5) |', md_content)
-                md_content = re.sub(r'\| `plan_only` \| \d+% \(\d+/\d+\) \|', '| `plan_only` | 50% (2/5) |', md_content)
-                md_content = re.sub(r'\| `critique_only` \| \d+% \(\d+/\d+\) \|', '| `critique_only` | 80% (4/5) |', md_content)
-                md_content = re.sub(r'\| `full` \| \d+% \(\d+/\d+\) \|', '| `full` | 100% (5/5) |', md_content)
-                
-                md_content = re.sub(r'\| \*\*add_docstrings\*\* \| \d+% \| \d+% \| \d+% \| \d+% \|', '| **add_docstrings** | 0% | 50% | 100% | 100% |', md_content)
-                md_content = re.sub(r'\| \*\*dead_code_removal\*\* \| \d+% \| \d+% \| \d+% \| \d+% \|', '| **dead_code_removal** | 0% | 50% | 50% | 100% |', md_content)
-                md_content = re.sub(r'\| \*\*sync_to_async\*\* \| \d+% \| \d+% \| \d+% \| \d+% \|', '| **sync_to_async** | 0% | 50% | 100% | 100% |', md_content)
-                md_content = re.sub(r'\| \*\*fix_bugs\*\* \| \d+% \| \d+% \| \d+% \| \d+% \|', '| **fix_bugs** | 50% | 50% | 100% | 100% |', md_content)
-                md_content = re.sub(r'\| \*\*explain_codebase\*\* \| \d+% \| \d+% \| \d+% \| \d+% \|', '| **explain_codebase** | 50% | 50% | 50% | 100% |', md_content)
-                latest_md.write_text(md_content)
-            except Exception as e:
-                pass
-            # ------------------------------------------------
+
             
             print(f"\nBenchmark output file generated at: {latest_md}")
             print("\n" + latest_md.read_text())
