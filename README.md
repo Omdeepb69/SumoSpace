@@ -415,40 +415,6 @@ sumo logs stats
 sumo replay <session-id>
 ```
 
-## Benchmarks
-
-The SumoSpace architecture (Planner → Critic → Resolver) drastically improves the success rate of local models. Below are the deterministic benchmark results for **llama3:8b** running via Ollama on a T4 GPU (Linux x86_64, 31GB RAM) with SumoSpace `v0.2.0`.
-
-### Summary
-
-| Committee Mode | Success Rate | Avg Duration | Tool Failures |
-|----------------|-------------|--------------|---------------|
-| `disabled` | 20% (1/5) | 10.9s | 0 |
-| `plan_only` | 50% (2/5) | 25.9s | 0 |
-| `critique_only` | 80% (4/5) | 18.8s | 0 |
-| `full` | 100% (5/5) | 38.8s | 0 |
-
-### Results by Task
-
-| Task | disabled | plan_only | critique_only | full |
-|------|---|---|---|---|
-| **add_docstrings** | 0% | 50% | 100% | 100% |
-| **dead_code_removal** | 0% | 50% | 50% | 100% |
-| **sync_to_async** | 0% | 50% | 100% | 100% |
-| **fix_bugs** | 50% | 50% | 100% | 100% |
-| **explain_codebase** | 50% | 50% | 50% | 100% |
-
-**Committee Improvement:** +80.0 percentage points over baseline.
-
-### Run it yourself
-You can reproduce these benchmarks locally (or on a cloud instance like Kaggle/Colab):
-
-```bash
-git clone https://github.com/Omdeepb69/SumoSpace
-cd SumoSpace
-python benchmarks/run_benchmark.py --provider ollama --model llama3:8b --modes disabled,plan_only,critique_only,full
-```
-
 ## Architecture
 
 - `sumospace/`

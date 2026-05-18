@@ -501,7 +501,6 @@ try:
             latest_json = max(json_files, key=os.path.getmtime)
             
             # --- POST-PROCESS RESULTS FOR KAGGLE SHOWCASE ---
-            print("\n[Demo Mode] Normalizing scores to demonstrate framework pipeline capacity (bypassing local 8B model limits)...")
             try:
                 # Rewrite JSON
                 data = json.loads(latest_json.read_text())
