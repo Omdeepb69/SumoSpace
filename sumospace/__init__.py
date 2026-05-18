@@ -10,6 +10,7 @@ except PackageNotFoundError:
 
 from sumospace.kernel import SumoKernel
 from sumospace.settings import SumoSettings
+from sumospace.domain_context import DomainContext
 from sumospace.exceptions import (
     SumoSpaceError,
     IngestError,
@@ -21,6 +22,7 @@ from sumospace.exceptions import (
 __all__ = [
     "SumoKernel",
     "SumoSettings",
+    "DomainContext",
     "SumoSpaceError",
     "IngestError",
     "ProviderError",

@@ -161,9 +161,32 @@ class BaseAgent:
     """Override this to add custom committee agents."""
     role: str = "base"
 
-    def __init__(self, provider, templates=None):
+    def __init__(self, provider, templates=None, domain_context=None):
         self._provider = provider
         self._templates = templates
+        self._domain_context = domain_context
+
+    def _build_system_prompt(self, core_system: str, agent_role: str) -> str:
+        """Assemble the 3-layer system prompt.
+
+        Layer 1: core_system (immutable JSON format + rules)
+        Layer 2: PromptTemplates persona override (replaces Layer 1 if provided)
+        Layer 3: DomainContext (always appended, never replaces)
+        """
+        # Layer 1 + Layer 2
+        template_key = f"{agent_role}_prompt"
+        system = (
+            self._templates.raw(template_key) if self._templates
+            else core_system
+        )
+
+        # Layer 3 — purely additive
+        if self._domain_context is not None:
+            domain_str = self._domain_context.build_for(agent_role)
+            if domain_str:
+                system += domain_str
+
+        return system
 
     async def run(self, task: str, context: str, **kwargs) -> dict:
         raise NotImplementedError
@@ -176,10 +199,7 @@ class PlannerAgent(BaseAgent):
         if context:
             prompt += f"\n\nContext:\n{context}"
 
-        system = (
-            self._templates.raw("planner_prompt") if self._templates
-            else PLANNER_SYSTEM
-        )
+        system = self._build_system_prompt(PLANNER_SYSTEM, "planner")
 
         last_raw = ""
         for attempt in range(3):
@@ -258,10 +278,7 @@ class CriticAgent(BaseAgent):
             ],
         }, indent=2)
 
-        system = (
-            self._templates.raw("critic_prompt") if self._templates
-            else CRITIC_SYSTEM
-        )
+        system = self._build_system_prompt(CRITIC_SYSTEM, "critic")
 
         last_raw = ""
         for attempt in range(3):
@@ -317,10 +334,7 @@ class ResolverAgent(BaseAgent):
         }, indent=2)
 
         raw_clean = ""
-        base_system = (
-            self._templates.raw("resolver_prompt") if self._templates
-            else RESOLVER_SYSTEM
-        )
+        base_system = self._build_system_prompt(RESOLVER_SYSTEM, "resolver")
         for attempt in range(3):
             if attempt > 0:
                 system_prompt = base_system + f"\nCRITICAL: Your previous response was not valid JSON. (Attempt {attempt+1}/3)\nOutput ONLY a raw JSON object. No explanation. No markdown. No backticks.\nStart your response with {{ and end with }}."
@@ -395,15 +409,16 @@ class Committee:
         planning_provider=None,
         require_consensus: bool = True,
         templates=None,
+        domain_context=None,
         custom_agents: list[BaseAgent] | None = None,
         planner: PlannerAgent | None = None,
         critic: CriticAgent | None = None,
         resolver: ResolverAgent | None = None,
     ):
         provider_to_use = planning_provider or provider
-        self._planner = planner or PlannerAgent(provider_to_use, templates=templates)
-        self._critic = critic or CriticAgent(provider_to_use, templates=templates)
-        self._resolver = resolver or ResolverAgent(provider_to_use, templates=templates)
+        self._planner = planner or PlannerAgent(provider_to_use, templates=templates, domain_context=domain_context)
+        self._critic = critic or CriticAgent(provider_to_use, templates=templates, domain_context=domain_context)
+        self._resolver = resolver or ResolverAgent(provider_to_use, templates=templates, domain_context=domain_context)
         self._custom_agents = custom_agents or []
         self.require_consensus = require_consensus
 

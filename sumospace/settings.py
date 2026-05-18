@@ -170,6 +170,24 @@ class SumoSettings(BaseSettings):
     # ── Prompt Templates ──────────────────────────────────────────────────────
     prompt_template_path: Optional[str] = None  # Directory containing custom prompt .txt files
 
+    # ── Domain Context (Layer 3 — purely additive) ───────────────────────────
+    global_domain_context: str = Field(
+        "",
+        description="Domain knowledge injected into ALL agent prompts. Never replaces core instructions."
+    )
+    planner_domain_context: str = Field(
+        "",
+        description="Domain knowledge injected only into the Planner agent prompt."
+    )
+    critic_domain_context: str = Field(
+        "",
+        description="Domain knowledge injected only into the Critic agent prompt."
+    )
+    resolver_domain_context: str = Field(
+        "",
+        description="Domain knowledge injected only into the Resolver agent prompt."
+    )
+
     # ── Hooks ─────────────────────────────────────────────────────────────────
     auto_load_hooks: bool = False
     """

@@ -169,6 +169,7 @@ class SumoKernel:
         config: KernelConfig | None = None,
         settings: "SumoSettings | None" = None,
         hooks: "HookRegistry | None" = None,
+        domain_context: "DomainContext | None" = None,
     ):
         if config is not None and settings is None:
             import warnings
@@ -227,6 +228,28 @@ class SumoKernel:
             enabled=self.settings.telemetry_enabled,
             endpoint=self.settings.telemetry_endpoint
         )
+
+        # Domain context: explicit object takes priority, then settings fields
+        if domain_context is not None:
+            self._domain_context = domain_context
+        else:
+            from sumospace.domain_context import DomainContext
+            cfg = self.settings
+            has_any = any([
+                getattr(cfg, 'global_domain_context', ''),
+                getattr(cfg, 'planner_domain_context', ''),
+                getattr(cfg, 'critic_domain_context', ''),
+                getattr(cfg, 'resolver_domain_context', ''),
+            ])
+            if has_any:
+                self._domain_context = DomainContext(
+                    global_context=getattr(cfg, 'global_domain_context', ''),
+                    planner_context=getattr(cfg, 'planner_domain_context', ''),
+                    critic_context=getattr(cfg, 'critic_domain_context', ''),
+                    resolver_context=getattr(cfg, 'resolver_domain_context', ''),
+                )
+            else:
+                self._domain_context = None
 
     @property
     def tools(self) -> ToolRegistry:
@@ -335,6 +358,7 @@ class SumoKernel:
                 planning_provider=self._secondary_provider or self._provider,
                 require_consensus=cfg.require_consensus,
                 templates=self.templates,
+                domain_context=self._domain_context,
             )
 
             self._initialized = True
