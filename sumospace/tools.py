@@ -90,7 +90,7 @@ class BaseTool:
 
 class ReadFileTool(BaseTool):
     name = "read_file"
-    description = "Read the contents of a file."
+    description = "Read the contents of a file. Parameters: path (string)."
 
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
@@ -113,7 +113,7 @@ class ReadFileTool(BaseTool):
 
 class WriteFileTool(BaseTool):
     name = "write_file"
-    description = "Write content to a file, creating directories as needed."
+    description = "Write text to a new file, or completely overwrite an existing file. Parameters: path (string), content (string)."
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -145,7 +145,7 @@ class WriteFileTool(BaseTool):
 
 class ListDirectoryTool(BaseTool):
     name = "list_directory"
-    description = "List files in a directory, optionally filtered by extension."
+    description = "List all files and directories in a given path. Parameters: path (string, default '.')."
 
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
@@ -189,7 +189,7 @@ class ListDirectoryTool(BaseTool):
 
 class SearchFilesTool(BaseTool):
     name = "search_files"
-    description = "Search for a pattern (regex or literal) in files."
+    description = "Search for a regex pattern across files in a directory. Parameters: pattern (string), path (string, default '.'), extension (string, optional)."
 
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
@@ -239,7 +239,7 @@ class SearchFilesTool(BaseTool):
 class ReplaceTextTool(BaseTool):
     """Surgical file editing tool that replaces an exact snippet of text."""
     name = "replace_text"
-    description = "Replace an exact block of text in a file. Safer than write_file for small edits."
+    description = "Replace an exact block of text in a file. Parameters: path (string), old_text (string), new_text (string)."
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -305,7 +305,7 @@ class ReplaceTextTool(BaseTool):
 class PatchFileTool(BaseTool):
     """Apply a unified diff patch to a file."""
     name = "patch_file"
-    description = "Apply a code patch to an existing file."
+    description = "Apply a unified diff patch to a file. Parameters: path (string), patch (string, unified diff format)."
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -752,6 +752,12 @@ class ToolRegistry:
             "new": "new_text",
             "replacement": "new_text",
             "original": "old_text",
+            "original_text": "old_text",
+            "replacement_text": "new_text",
+            "find": "old_text",
+            "replace": "new_text",
+            "target": "old_text",
+            "source": "old_text",
         }
         normalized = {}
         for k, v in kwargs.items():
