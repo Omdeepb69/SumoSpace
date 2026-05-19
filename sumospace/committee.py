@@ -235,14 +235,13 @@ class PlannerAgent(BaseAgent):
                 valid_steps.append(step)
                 continue
 
-            # Unresolvable — drop the step silently
-            # (Better to execute 4/5 valid steps than fail on 1 bad one)
+            # Unresolvable — substitute with the invalid tool placeholder
+            # This preserves chronological step numbering and provides explicit failure feedback
+            step.parameters = {"hallucinated_tool": tool}
+            step.tool = "invalid_tool"
+            valid_steps.append(step)
 
         plan.steps = valid_steps
-        # Re-number steps sequentially
-        for i, step in enumerate(plan.steps):
-            step.step_number = i + 1
-
         return plan
 
     def _legacy_parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:

@@ -103,6 +103,7 @@ class BenchmarkReporter:
                             "retries": t.retries,
                             "tool_calls": t.tool_calls,
                             "tool_failures": t.tool_failures,
+                            "failed_tool_details": t.failed_tool_details,
                             "rollback_triggered": t.rollback_triggered,
                             "error": t.error,
                         }

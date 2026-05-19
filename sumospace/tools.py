@@ -57,6 +57,9 @@ class BaseTool:
         "properties": {},
         "required": [],
     }
+    
+    # Tool-scoped aliases to map hallucinated parameter names to valid ones
+    param_aliases: ClassVar[dict[str, str]] = {}
 
     # Tool tags for filtering and routing
     tags: ClassVar[list[str]] = []
@@ -91,6 +94,7 @@ class BaseTool:
 class ReadFileTool(BaseTool):
     name = "read_file"
     description = "Read the contents of a file. Parameters: path (string)."
+    param_aliases = {"file_path": "path", "filepath": "path", "filename": "path", "file": "path"}
 
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
@@ -114,6 +118,7 @@ class ReadFileTool(BaseTool):
 class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write text to a new file, or completely overwrite an existing file. Parameters: path (string), content (string)."
+    param_aliases = {"file_path": "path", "filepath": "path", "filename": "path", "file": "path", "text": "content", "data": "content", "input": "content", "tool_input": "content"}
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -146,6 +151,7 @@ class WriteFileTool(BaseTool):
 class ListDirectoryTool(BaseTool):
     name = "list_directory"
     description = "List all files and directories in a given path. Parameters: path (string, default '.')."
+    param_aliases = {"dir": "path", "directory": "path", "folder": "path"}
 
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
@@ -190,6 +196,7 @@ class ListDirectoryTool(BaseTool):
 class SearchFilesTool(BaseTool):
     name = "search_files"
     description = "Search for a regex pattern across files in a directory. Parameters: pattern (string), path (string, default '.'), extension (string, optional)."
+    param_aliases = {"query": "pattern", "search": "pattern", "regex": "pattern", "dir": "path", "directory": "path", "folder": "path"}
 
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
@@ -206,7 +213,13 @@ class SearchFilesTool(BaseTool):
         import time
         start = time.monotonic()
         try:
-            regex = re.compile(pattern)
+            search_mode = "regex"
+            try:
+                regex = re.compile(pattern)
+            except re.error:
+                search_mode = "literal_fallback"
+                regex = re.compile(re.escape(pattern))
+                
             results = []
             target_path = Path(self._workspace) / path
             for root, dirs, files in os.walk(target_path):
@@ -229,7 +242,7 @@ class SearchFilesTool(BaseTool):
             output = "\n".join(results) or "No matches found."
             return ToolResult(
                 tool=self.name, success=True, output=output,
-                metadata={"pattern": pattern, "matches": len(results)},
+                metadata={"pattern": pattern, "matches": len(results), "search_mode": search_mode},
                 duration_ms=(time.monotonic() - start) * 1000,
             )
         except Exception as e:
@@ -240,6 +253,11 @@ class ReplaceTextTool(BaseTool):
     """Surgical file editing tool that replaces an exact snippet of text."""
     name = "replace_text"
     description = "Replace an exact block of text in a file. Parameters: path (string), old_text (string), new_text (string)."
+    param_aliases = {
+        "file_path": "path", "filepath": "path", "filename": "path", "file": "path",
+        "old": "old_text", "original": "old_text", "original_text": "old_text", "find": "old_text", "target": "old_text", "source": "old_text",
+        "new": "new_text", "replacement": "new_text", "replacement_text": "new_text", "replace": "new_text"
+    }
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -368,7 +386,8 @@ class PatchFileTool(BaseTool):
 
 class ShellTool(BaseTool):
     name = "shell"
-    description = "Run a shell command with timeout. Returns stdout + stderr."
+    description = "Run a bash command. Parameters: command (string)."
+    param_aliases = {"cmd": "command", "args": "command", "sh": "command"}
 
     BLOCKED_PATTERNS = [re.compile(p) for p in [
         r"\brm\s+-r", r"\bmkfs\b", r"\bdd\s+if=", r":\(\)\{.*\}", r"\bchmod\s+-R\s+777\b"
@@ -661,6 +680,23 @@ class BrowserTool(BaseTool):
 
 # ─── Tool Registry ────────────────────────────────────────────────────────────
 
+class InvalidTool(BaseTool):
+    """Fallback tool for hallucinated tool names to provide explicit feedback."""
+    name = "invalid_tool"
+    description = "Internal tool used when the LLM hallucinates a non-existent tool."
+
+    def __init__(self, available_tools: list[str]):
+        self._available_tools = available_tools
+
+    async def run(self, hallucinated_tool: str, **_) -> ToolResult:
+        return ToolResult(
+            tool=self.name,
+            success=False,
+            output="",
+            error=f"Unknown tool: '{hallucinated_tool}'. Available tools: {', '.join(self._available_tools)}"
+        )
+
+
 class ToolRegistry:
     """
     Central registry for all tools.
@@ -715,6 +751,8 @@ class ToolRegistry:
         self.register(DockerTool(workspace=ws))
         self.register(DependencyTool(workspace=ws))
         self._discover_plugins()
+        # Register the invalid tool placeholder
+        self.register(InvalidTool(available_tools=list(self._tools.keys())))
 
     def register(self, tool: BaseTool):
         self._tools[tool.name] = tool
@@ -734,34 +772,10 @@ class ToolRegistry:
                 error=f"Tool '{name}' not found. Available: {list(self._tools.keys())}",
             )
 
-        # Normalize common LLM parameter hallucinations
-        PARAM_ALIASES = {
-            "file_path": "path",
-            "filepath": "path",
-            "filename": "path",
-            "file": "path",
-            "dir": "path",
-            "directory": "path",
-            "cmd": "command",
-            "command": "command",
-            "query": "pattern",
-            "search": "pattern",
-            "text": "content",
-            "data": "content",
-            "old": "old_text",
-            "new": "new_text",
-            "replacement": "new_text",
-            "original": "old_text",
-            "original_text": "old_text",
-            "replacement_text": "new_text",
-            "find": "old_text",
-            "replace": "new_text",
-            "target": "old_text",
-            "source": "old_text",
-        }
+        # Normalize LLM parameter hallucinations based on tool-scoped aliases
         normalized = {}
         for k, v in kwargs.items():
-            normalized[PARAM_ALIASES.get(k, k)] = v
+            normalized[tool.param_aliases.get(k, k)] = v
         kwargs = normalized
 
         valid, error_msg = tool.validate_params(kwargs)

@@ -32,6 +32,7 @@ class TaskResult:
     rollback_triggered: bool
     error: str = ""
     output_excerpt: str = ""
+    failed_tool_details: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -164,10 +165,17 @@ class BenchmarkRunner:
                     output_text = str(getattr(trace, "final_answer", trace))
                     # Collect metrics from trace if available
                     tool_calls = len(getattr(trace, "tool_calls", []))
-                    tool_failures = sum(
-                        1 for tc in getattr(trace, "tool_calls", [])
-                        if not getattr(tc, "success", True)
-                    )
+                    
+                    failed_tool_details = []
+                    for tc in getattr(trace, "tool_calls", []):
+                        if not getattr(tc, "success", True):
+                            failed_tool_details.append({
+                                "tool": getattr(tc, "tool", "unknown"),
+                                "error": getattr(tc, "error", ""),
+                                "metadata": getattr(tc, "metadata", {})
+                            })
+                    tool_failures = len(failed_tool_details)
+                    
                     retries = getattr(trace, "retry_count", 0)
                     rollback = getattr(trace, "rolled_back", False)
             except Exception as e:
@@ -196,4 +204,5 @@ class BenchmarkRunner:
                 rollback_triggered=rollback,
                 error=error,
                 output_excerpt=output_text[:300] if output_text else "",
+                failed_tool_details=failed_tool_details,
             )
