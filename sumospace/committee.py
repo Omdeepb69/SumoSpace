@@ -19,31 +19,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .parsing import parse_llm_json
+from .schemas import ExecutionPlan, ExecutionStep, CritiqueVerdict, ResolverOutput, dereference_schema
 
 
 # ─── Data Models ─────────────────────────────────────────────────────────────
-
-@dataclass
-class ExecutionStep:
-    step_number: int
-    tool: str
-    description: str
-    parameters: dict[str, Any] = field(default_factory=dict)
-    expected_output: str = ""
-    critical: bool = False   # If True, failure halts the entire plan
-
-
-@dataclass
-class ExecutionPlan:
-    task: str
-    steps: list[ExecutionStep]
-    reasoning: str = ""
-    estimated_duration_s: float = 0
-    risks: list[str] = field(default_factory=list)
-    approved: bool = False
-    approval_notes: str = ""
-    raw_output: str = ""
-
 
 @dataclass
 class CommitteeVerdict:
@@ -60,42 +39,16 @@ class CommitteeVerdict:
 PLANNER_SYSTEM = """You are the Planner agent in a multi-agent task execution system.
 Your role: Given a task description and the list of available tools in the context, produce a detailed, safe execution plan.
 
-Output ONLY a JSON object with this schema:
-{
-  "reasoning": "Brief explanation of your approach",
-  "estimated_duration_s": <number>,
-  "steps": [
-    {
-      "step_number": 1,
-      "tool": "<tool_name>",
-      "description": "<what this step does>",
-      "parameters": {<tool-specific params>},
-      "expected_output": "<what success looks like>",
-      "critical": <true if failure should halt everything>
-    }
-  ]
-}
-
 Rules:
 - Use ONLY the tools listed in the "AVAILABLE TOOLS" section of the context.
 - Be specific. Include actual file paths, commands, parameters.
 - Start with read/scan steps before write steps.
 - Mark destructive operations (write_file, shell rm, etc.) as critical.
-- Maximum 12 steps. If more are needed, break the task.
-- Output ONLY JSON. No markdown fences."""
+- Maximum 12 steps. If more are needed, break the task."""
 
 
 CRITIC_SYSTEM = """You are the Critic agent in a multi-agent task execution system.
 Your role: Review the proposed execution plan and identify ALL potential issues.
-
-Output ONLY a JSON object:
-{
-  "risks": ["<risk 1>", "<risk 2>"],
-  "blockers": ["<blocker 1>"],  // Must-fix issues that make plan unsafe to execute
-  "suggestions": ["<improvement 1>"],
-  "verdict": "approve" | "revise" | "reject",
-  "verdict_reason": "<one sentence>"
-}
 
 Be honest and rigorous. Reject plans that:
 - Delete or overwrite important files without backup
@@ -107,19 +60,8 @@ Be honest and rigorous. Reject plans that:
 RESOLVER_SYSTEM = """You are the Resolver agent in a multi-agent task execution system.
 Your role: Given the original plan and the critic's feedback, produce the final approved plan.
 
-If the critic's blockers are unresolvable, output:
-{"approved": false, "rejection_reason": "<reason>", "steps": []}
-
-Otherwise, produce an improved plan:
-{
-  "approved": true,
-  "approval_notes": "<what was improved>",
-  "reasoning": "<approach>",
-  "estimated_duration_s": <number>,
-  "steps": [...]   // same schema as planner
-}
-
-Output ONLY JSON. No markdown. No explanation outside the JSON."""
+If the critic's blockers are unresolvable, set approved to false and explain why.
+Otherwise, produce an improved plan by revising the steps."""
 
 
 # ─── Individual Agents ────────────────────────────────────────────────────────
@@ -134,20 +76,13 @@ class BaseAgent:
         self._domain_context = domain_context
 
     def _build_system_prompt(self, core_system: str, agent_role: str) -> str:
-        """Assemble the 3-layer system prompt.
-
-        Layer 1: core_system (immutable JSON format + rules)
-        Layer 2: PromptTemplates persona override (replaces Layer 1 if provided)
-        Layer 3: DomainContext (always appended, never replaces)
-        """
-        # Layer 1 + Layer 2
+        """Assemble the 3-layer system prompt."""
         template_key = f"{agent_role}_prompt"
         system = (
             self._templates.raw(template_key) if self._templates
             else core_system
         )
 
-        # Layer 3 — purely additive
         if self._domain_context is not None:
             domain_str = self._domain_context.build_for(agent_role)
             if domain_str:
@@ -158,6 +93,7 @@ class BaseAgent:
     async def run(self, task: str, context: str, **kwargs) -> dict:
         raise NotImplementedError
 
+
 class PlannerAgent(BaseAgent):
     role = "planner"
 
@@ -167,29 +103,56 @@ class PlannerAgent(BaseAgent):
             prompt += f"\n\nContext:\n{context}"
 
         system = self._build_system_prompt(PLANNER_SYSTEM, "planner")
+        schema = dereference_schema(ExecutionPlan.model_json_schema())
 
         last_raw = ""
         for attempt in range(3):
-            raw = await self._provider.complete(
-                user=prompt,
-                system=system,
-                temperature=min(0.1 + (attempt * 0.1), 0.4),
-                max_tokens=2048,
-            )
-            last_raw = raw
-            plan, raw_clean = self._parse_plan(task, raw)
-            if plan.steps or attempt == 2:
-                return plan, raw_clean
-        
-        return self._parse_plan(task, last_raw)
+            try:
+                raw = await self._provider.complete_structured(
+                    user=prompt,
+                    system=system,
+                    schema=schema,
+                    temperature=min(0.1 + (attempt * 0.1), 0.4),
+                    max_tokens=2048,
+                )
+                last_raw = raw
 
-    def _parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
-        # DEBUG LOGGING
-        import os
-        if os.environ.get("DEBUG_PLANNER"):
-            with open("/tmp/planner_debug.log", "a") as f:
-                f.write(f"\n--- RAW ---\n{raw}\n")
-        
+                # Guard: empty string means grammar engine failed silently
+                if not raw or not raw.strip():
+                    raise ValueError(
+                        f"Structured output returned empty string (attempt {attempt+1}/3). "
+                        "Likely a grammar/schema incompatibility in the provider."
+                    )
+
+                plan = ExecutionPlan.model_validate_json(raw)
+                plan.raw_output = raw
+                return plan, raw
+            except Exception as e:
+                # LEGACY FALLBACK
+                import os
+                if os.environ.get("DEBUG_PLANNER"):
+                    with open("/tmp/planner_debug.log", "a") as f:
+                        f.write(f"\n--- FALLBACK (Attempt {attempt+1}) ---\nError: {e}\nRaw:\n{last_raw}\n")
+                
+                # If structured parsing totally fails, attempt legacy repair logic
+                try:
+                    plan, _ = self._legacy_parse_plan(task, last_raw)
+                    if plan.steps:
+                        return plan, last_raw
+                except Exception:
+                    pass
+
+        # Return a failed empty plan if all attempts failed
+        return ExecutionPlan(
+            protocol_version="1.0",
+            task=task,
+            reasoning="Plan parsing failed; halting to prevent unsafe fallback.",
+            steps=[],
+            raw_output=last_raw
+        ), last_raw
+
+    def _legacy_parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
+        # LEGACY FALLBACK
         try:
             data, repair_used = parse_llm_json(raw, expected_keys=["steps"])
             steps = [
@@ -204,19 +167,15 @@ class PlannerAgent(BaseAgent):
                 for i, s in enumerate(data.get("steps", []))
             ]
             return ExecutionPlan(
+                protocol_version="1.0",
                 task=task,
                 steps=steps,
                 reasoning=data.get("reasoning", ""),
-                estimated_duration_s=float(data.get("estimated_duration_s", 0)),
+                estimated_duration_s=int(data.get("estimated_duration_s", 30)),
                 raw_output=raw,
             ), raw
         except Exception:
-            return ExecutionPlan(
-                task=task,
-                steps=[],
-                reasoning="Plan parsing failed; halting to prevent unsafe fallback.",
-                raw_output=raw,
-            ), raw
+            raise
 
 
 class CriticAgent(BaseAgent):
@@ -228,42 +187,53 @@ class CriticAgent(BaseAgent):
         task: str,
     ) -> tuple[str, str, list[str], list[str], str]:
         """Returns: (verdict, reason, risks, blockers, raw)"""
-        plan_json = json.dumps({
-            "task": task,
-            "steps": [
-                {
-                    "step_number": s.step_number,
-                    "tool": s.tool,
-                    "description": s.description,
-                    "parameters": s.parameters,
-                    "critical": s.critical,
-                }
-                for s in plan.steps
-            ],
-        }, indent=2)
+        plan_json = plan.model_dump_json(exclude={"raw_output", "approved", "approval_notes", "risks"})
 
         system = self._build_system_prompt(CRITIC_SYSTEM, "critic")
+        schema = dereference_schema(CritiqueVerdict.model_json_schema())
 
         last_raw = ""
         for attempt in range(3):
-            raw = await self._provider.complete(
-                user=f"Review this execution plan:\n{plan_json}",
-                system=system,
-                temperature=min(0.1 + (attempt * 0.1), 0.4),
-                max_tokens=1024,
-            )
-            last_raw = raw
             try:
-                data, _ = parse_llm_json(raw, expected_keys=["verdict"])
-                verdict = data.get("verdict", "approve")
-                reason = data.get("verdict_reason", "")
-                risks = data.get("risks", [])
-                blockers = data.get("blockers", [])
-                return verdict, reason, risks, blockers, raw
-            except Exception:
-                if attempt == 2:
-                    return "approve", "Critique parsing failed", [], [], last_raw
-                continue
+                raw = await self._provider.complete_structured(
+                    user=f"Review this execution plan:\n{plan_json}",
+                    system=system,
+                    schema=schema,
+                    temperature=min(0.1 + (attempt * 0.1), 0.4),
+                    max_tokens=1024,
+                )
+                last_raw = raw
+
+                # Guard: empty string means grammar engine failed silently
+                if not raw or not raw.strip():
+                    raise ValueError(
+                        f"Structured output returned empty string (attempt {attempt+1}/3). "
+                        "Likely a grammar/schema incompatibility in the provider."
+                    )
+
+                verdict_model = CritiqueVerdict.model_validate_json(raw)
+                return (
+                    verdict_model.verdict, 
+                    verdict_model.reason, 
+                    verdict_model.risks, 
+                    verdict_model.blockers, 
+                    raw
+                )
+            except Exception as e:
+                # LEGACY FALLBACK
+                try:
+                    data, _ = parse_llm_json(last_raw, expected_keys=["verdict"])
+                    return (
+                        data.get("verdict", "approve"),
+                        data.get("verdict_reason", ""),
+                        data.get("risks", []),
+                        data.get("blockers", []),
+                        last_raw
+                    )
+                except Exception:
+                    if attempt == 2:
+                        return "approve", "Critique parsing failed", [], [], last_raw
+                    continue
 
 
 class ResolverAgent(BaseAgent):
@@ -286,69 +256,110 @@ class ResolverAgent(BaseAgent):
 
         prompt = json.dumps({
             "task": task,
-            "original_plan_steps": [
-                {"tool": s.tool, "description": s.description, "parameters": s.parameters}
-                for s in original_plan.steps
-            ],
+            "original_plan_steps": original_plan.model_dump(include={"steps"})["steps"],
             "critic_verdict": critic_verdict,
             "critic_reason": critic_reason,
             "risks": risks,
             "blockers": blockers,
         }, indent=2)
 
-        raw_clean = ""
         base_system = self._build_system_prompt(RESOLVER_SYSTEM, "resolver")
+        schema = dereference_schema(ResolverOutput.model_json_schema())
+        
+        last_raw = ""
         for attempt in range(3):
-            if attempt > 0:
-                system_prompt = base_system + f"\nCRITICAL: Your previous response was not valid JSON. (Attempt {attempt+1}/3)\nOutput ONLY a raw JSON object. No explanation. No markdown. No backticks.\nStart your response with {{ and end with }}."
-            else:
-                system_prompt = base_system
-
-            raw = await self._provider.complete(
-                user=prompt,
-                system=system_prompt,
-                temperature=min(0.1 + (attempt * 0.1), 0.4),
-                max_tokens=2048,
-            )
-
             try:
-                data, _ = parse_llm_json(raw, expected_keys=["approved"])
-                approved = bool(data.get("approved", False))
+                raw = await self._provider.complete_structured(
+                    user=prompt,
+                    system=base_system,
+                    schema=schema,
+                    temperature=min(0.1 + (attempt * 0.1), 0.4),
+                    max_tokens=2048,
+                )
+                last_raw = raw
 
-                if not approved:
-                    return original_plan, False, "", data.get("rejection_reason", "Rejected by resolver")
-
-                steps = [
-                    ExecutionStep(
-                        step_number=s.get("step_number", i + 1),
-                        tool=s.get("tool", "shell"),
-                        description=s.get("description", ""),
-                        parameters=s.get("parameters", {}),
-                        expected_output=s.get("expected_output", ""),
-                        critical=s.get("critical", False),
+                # Guard: empty string means grammar engine failed silently
+                if not raw or not raw.strip():
+                    raise ValueError(
+                        f"Structured output returned empty string (attempt {attempt+1}/3). "
+                        "Likely a grammar/schema incompatibility in the provider."
                     )
-                    for i, s in enumerate(data.get("steps", []))
-                ]
-                plan = ExecutionPlan(
-                    task=task,
-                    steps=steps,
-                    reasoning=data.get("reasoning", ""),
-                    estimated_duration_s=float(data.get("estimated_duration_s", 0)),
-                    risks=risks,
-                    approved=True,
-                    approval_notes=data.get("approval_notes", ""),
-                    raw_output=raw,
-                )
-                return plan, True, plan.approval_notes, raw
+
+                resolver_model = ResolverOutput.model_validate_json(raw)
+                
+                if not resolver_model.approved:
+                    return original_plan, False, "", resolver_model.rejection_reason
+
+                # Reconstruct plan from revised_steps if resolver made revisions
+                if resolver_model.has_revision and resolver_model.revised_steps:
+                    final_plan = ExecutionPlan(
+                        protocol_version="1.0",
+                        task=task,
+                        steps=resolver_model.revised_steps,
+                        reasoning=original_plan.reasoning,
+                        estimated_duration_s=original_plan.estimated_duration_s,
+                        risks=risks,
+                        approved=True,
+                        approval_notes=resolver_model.approval_notes,
+                        raw_output=raw,
+                    )
+                else:
+                    final_plan = original_plan
+                    final_plan.approved = True
+                    final_plan.approval_notes = resolver_model.approval_notes
+                    final_plan.risks = risks
+                    final_plan.raw_output = raw
+                
+                return final_plan, True, final_plan.approval_notes, raw
+                
             except Exception as e:
-                if attempt < 2:
-                    continue
-                # A parse failure on a flagged plan is NOT approval.
-                return original_plan, False, "", (
-                    f"Resolver output unparseable ({e}). "
-                    "Refusing to approve a critic-flagged plan with unverifiable resolution. "
-                    "Retry or use --no-consensus to bypass."
-                )
+                # LEGACY FALLBACK
+                if not last_raw or not last_raw.strip():
+                    if attempt < 2:
+                        continue
+                    return original_plan, False, "", (
+                        f"Resolver returned empty output on all attempts. "
+                        "Provider grammar engine likely cannot handle the schema."
+                    )
+
+                try:
+                    data, _ = parse_llm_json(last_raw, expected_keys=["approved"])
+                    approved = bool(data.get("approved", False))
+
+                    if not approved:
+                        rejection = data.get("rejection_reason", "Rejected by resolver")
+                        return original_plan, False, "", rejection
+
+                    steps = [
+                        ExecutionStep(
+                            step_number=s.get("step_number", i + 1),
+                            tool=s.get("tool", "shell"),
+                            description=s.get("description", ""),
+                            parameters=s.get("parameters", {}),
+                            expected_output=s.get("expected_output", ""),
+                            critical=s.get("critical", False),
+                        )
+                        for i, s in enumerate(data.get("steps", data.get("revised_steps", [])))
+                    ]
+                    plan = ExecutionPlan(
+                        protocol_version="1.0",
+                        task=task,
+                        steps=steps,
+                        reasoning=data.get("reasoning", ""),
+                        estimated_duration_s=int(data.get("estimated_duration_s", 30)),
+                        risks=risks,
+                        approved=True,
+                        approval_notes=data.get("approval_notes", ""),
+                        raw_output=last_raw,
+                    )
+                    return plan, True, plan.approval_notes, last_raw
+                except Exception:
+                    if attempt < 2:
+                        continue
+                    return original_plan, False, "", (
+                        f"Resolver output unparseable ({e}). "
+                        "Refusing to approve a critic-flagged plan with unverifiable resolution."
+                    )
 
 
 # ─── Committee ────────────────────────────────────────────────────────────────
