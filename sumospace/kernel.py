@@ -961,6 +961,36 @@ class SumoKernel:
             f"=== TASK ===\n{task}",
         ]
         
+        # Fast Workspace Snapshot (to prevent static planner hallucinations)
+        import os
+        from pathlib import Path
+        workspace_snapshot = ""
+        ws_path = Path(self.settings.workspace)
+        if ws_path.exists() and ws_path.is_dir():
+            try:
+                tree = []
+                py_contents = []
+                for root, dirs, files in os.walk(ws_path):
+                    dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ["__pycache__", "node_modules", "venv"]]
+                    rel_root = Path(root).relative_to(ws_path)
+                    for f in files:
+                        if f.startswith('.'): continue
+                        rel_path = rel_root / f if str(rel_root) != "." else Path(f)
+                        tree.append(str(rel_path))
+                        if f.endswith('.py') and len(py_contents) < 8:
+                            file_path = Path(root) / f
+                            if file_path.stat().st_size < 15000:
+                                py_contents.append(f"--- {rel_path} ---\n{file_path.read_text(errors='replace')}")
+                
+                workspace_snapshot = "Files in workspace:\n" + "\n".join(tree)
+                if py_contents:
+                    workspace_snapshot += "\n\nFile contents (preview):\n" + "\n\n".join(py_contents)
+            except Exception:
+                pass
+                
+        if workspace_snapshot:
+            parts.append(f"=== WORKSPACE SNAPSHOT ===\n{truncate_by_tokens(workspace_snapshot, 2048)}")
+        
         if truncated_mem:
             parts.append(f"=== RECENT MEMORY ===\n{truncated_mem}")
         if truncated_web:
