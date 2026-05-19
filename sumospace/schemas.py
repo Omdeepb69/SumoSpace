@@ -40,6 +40,8 @@ class ExecutionStep(BaseModel):
 
 
 class ExecutionPlan(BaseModel):
+    model_config = {"extra": "allow"}
+    
     protocol_version: Literal["1.0"] = Field(default="1.0", description="Protocol version for the plan.")
     reasoning: str = Field(..., description="Brief explanation of the overall approach.")
     steps: list[ExecutionStep] = Field(..., description="The ordered list of steps to execute.")

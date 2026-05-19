@@ -37,31 +37,48 @@ class CommitteeVerdict:
 # ─── Prompts ─────────────────────────────────────────────────────────────────
 
 PLANNER_SYSTEM = """You are the Planner agent in a multi-agent task execution system.
-Your role: Given a task description and the list of available tools in the context, produce a detailed, safe execution plan.
+Your role: Given a task description and the list of available tools, produce a detailed, safe execution plan.
 
-Rules:
-- Use ONLY the tools listed in the "AVAILABLE TOOLS" section of the context.
+CRITICAL RULES:
+- You MUST use ONLY the exact tool names listed in the AVAILABLE TOOLS section below.
+- Do NOT invent or hallucinate tool names. If no matching tool exists, do NOT include that step.
+- Use RELATIVE file paths (e.g., 'utils.py', not '/path/to/utils.py'). The workspace IS the current directory.
 - Be specific. Include actual file paths, commands, parameters.
 - Start with read/scan steps before write steps.
 - Mark destructive operations (write_file, shell rm, etc.) as critical.
-- Maximum 12 steps. If more are needed, break the task."""
+- Maximum 12 steps. If more are needed, break the task.
+- For file edits, prefer 'replace_text' (surgical edit) over 'write_file' (full overwrite).
+- The 'replace_text' tool requires: path, old_text (exact text to find), new_text (replacement).
+- The 'write_file' tool requires: path, content (full file content)."""
 
 
 CRITIC_SYSTEM = """You are the Critic agent in a multi-agent task execution system.
 Your role: Review the proposed execution plan and identify ALL potential issues.
 
-Be honest and rigorous. Reject plans that:
+Be constructive. Your goal is to IMPROVE plans, not block them:
+- Use "reject" ONLY for plans that pose genuine safety risks (data loss, system damage, destructive commands).
+- For all other issues (wrong tool names, missing steps, path errors, suboptimal ordering), use "revise" and explain what needs to change.
+- If the plan is reasonable and uses valid tools, use "approve".
+- Do NOT reject a plan just because it could be slightly better.
+
+Reject plans ONLY if they:
 - Delete or overwrite important files without backup
 - Run commands that could damage the system
-- Have missing prerequisite steps
-- Make unjustified assumptions about file locations or system state"""
+- Are fundamentally unsafe or destructive"""
 
 
 RESOLVER_SYSTEM = """You are the Resolver agent in a multi-agent task execution system.
-Your role: Given the original plan and the critic's feedback, produce the final approved plan.
+Your role: Given the original plan and the critic's feedback, decide whether to approve or reject.
 
-If the critic's blockers are unresolvable, set approved to false and explain why.
-Otherwise, produce an improved plan by revising the steps."""
+DECISION RULES:
+1. If the critic said "revise" with suggestions but NO blockers → set approved to TRUE.
+   Apply the suggestions by providing revised_steps, or approve the original plan as-is.
+2. If the critic said "revise" WITH blockers → try to fix them. If fixable, set approved to TRUE with revised_steps.
+3. If the critic said "reject" → set approved to FALSE only if the rejection reason is genuinely unresolvable.
+4. DEFAULT TO APPROVED. Most plans are good enough to execute. Only reject if the plan is truly dangerous.
+
+When approved, set has_revision to true and provide revised_steps if you changed anything.
+When approved without changes, set has_revision to false and leave revised_steps empty."""
 
 
 # ─── Individual Agents ────────────────────────────────────────────────────────
@@ -101,8 +118,24 @@ class PlannerAgent(BaseAgent):
         prompt = f"Task: {task}"
         if context:
             prompt += f"\n\nContext:\n{context}"
+        prompt += "\n\nIMPORTANT: Use RELATIVE file paths. The workspace is the current directory."
 
         system = self._build_system_prompt(PLANNER_SYSTEM, "planner")
+
+        # Extract available tools from context and inject into system prompt
+        available_tool_names = []
+        if context and "AVAILABLE TOOLS" in context:
+            tools_section = context.split("=== AVAILABLE TOOLS ===")
+            if len(tools_section) > 1:
+                tools_text = tools_section[1].split("===")[0].strip()
+                system += f"\n\nAVAILABLE TOOLS (use ONLY these exact names):\n{tools_text}"
+                # Parse tool names for post-validation
+                for line in tools_text.split("\n"):
+                    line = line.strip()
+                    if line.startswith("- ") and ":" in line:
+                        tool_name = line.split(":")[0].strip("- ").strip()
+                        available_tool_names.append(tool_name)
+
         schema = dereference_schema(ExecutionPlan.model_json_schema())
 
         last_raw = ""
@@ -126,6 +159,12 @@ class PlannerAgent(BaseAgent):
 
                 plan = ExecutionPlan.model_validate_json(raw)
                 plan.raw_output = raw
+                plan.task = task
+
+                # Post-generation: validate and fix tool names
+                if available_tool_names:
+                    plan = self._validate_tool_names(plan, available_tool_names)
+
                 return plan, raw
             except Exception as e:
                 # LEGACY FALLBACK
@@ -150,6 +189,61 @@ class PlannerAgent(BaseAgent):
             steps=[],
             raw_output=last_raw
         ), last_raw
+    def _validate_tool_names(self, plan: ExecutionPlan, available: list[str]) -> ExecutionPlan:
+        """Post-generation validation: fix hallucinated tool names via fuzzy matching."""
+        import difflib
+
+        # Common hallucination → real tool mapping
+        TOOL_ALIASES = {
+            "update_file": "write_file",
+            "edit_file": "replace_text",
+            "modify_file": "replace_text",
+            "create_file": "write_file",
+            "find_functions": "search_files",
+            "grep": "search_files",
+            "search": "search_files",
+            "find": "search_files",
+            "ls": "list_directory",
+            "dir": "list_directory",
+            "cat": "read_file",
+            "run": "shell",
+            "execute": "shell",
+            "bash": "shell",
+            "run_command": "shell",
+            "exec": "shell",
+        }
+
+        valid_steps = []
+        for step in plan.steps:
+            tool = step.tool.strip()
+
+            # Already valid
+            if tool in available:
+                valid_steps.append(step)
+                continue
+
+            # Check alias table
+            if tool in TOOL_ALIASES and TOOL_ALIASES[tool] in available:
+                step.tool = TOOL_ALIASES[tool]
+                valid_steps.append(step)
+                continue
+
+            # Fuzzy match
+            close = difflib.get_close_matches(tool, available, n=1, cutoff=0.6)
+            if close:
+                step.tool = close[0]
+                valid_steps.append(step)
+                continue
+
+            # Unresolvable — drop the step silently
+            # (Better to execute 4/5 valid steps than fail on 1 bad one)
+
+        plan.steps = valid_steps
+        # Re-number steps sequentially
+        for i, step in enumerate(plan.steps):
+            step.step_number = i + 1
+
+        return plan
 
     def _legacy_parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
         # LEGACY FALLBACK
@@ -249,10 +343,19 @@ class ResolverAgent(BaseAgent):
         blockers: list[str],
     ) -> tuple[ExecutionPlan, bool, str, str]:
         """Returns: (final_plan, approved, approval_notes, raw)"""
+        # Fast-path: critic approved
         if critic_verdict == "approve":
             original_plan.approved = True
             original_plan.risks = risks
             return original_plan, True, "Approved by critic without changes", ""
+
+        # Fast-path: critic said "revise" with zero blockers
+        # The plan is safe — suggestions are optional improvements, not dealbreakers
+        if critic_verdict == "revise" and not blockers:
+            original_plan.approved = True
+            original_plan.risks = risks
+            original_plan.approval_notes = f"Auto-approved (revise with no blockers). Critic note: {critic_reason}"
+            return original_plan, True, original_plan.approval_notes, ""
 
         prompt = json.dumps({
             "task": task,

@@ -92,11 +92,15 @@ class ReadFileTool(BaseTool):
     name = "read_file"
     description = "Read the contents of a file."
 
+    def __init__(self, workspace: str = "."):
+        self._workspace = workspace
+
     async def run(self, path: str, encoding: str = "utf-8", **_) -> ToolResult:
         import time
         start = time.monotonic()
         try:
-            content = Path(path).read_text(encoding=encoding, errors="replace")
+            full_path = Path(self._workspace) / path
+            content = full_path.read_text(encoding=encoding, errors="replace")
             return ToolResult(
                 tool=self.name, success=True,
                 output=content,
@@ -111,7 +115,8 @@ class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write content to a file, creating directories as needed."
 
-    def __init__(self, snapshot_manager=None, run_id: str | None = None):
+    def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
+        self._workspace = workspace
         self._snapshot_manager = snapshot_manager
         self._run_id = run_id
 
@@ -119,7 +124,7 @@ class WriteFileTool(BaseTool):
         import time
         start = time.monotonic()
         try:
-            p = Path(path)
+            p = Path(self._workspace) / path
             # Snapshot before mutation
             if self._snapshot_manager and self._run_id:
                 self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
@@ -142,6 +147,9 @@ class ListDirectoryTool(BaseTool):
     name = "list_directory"
     description = "List files in a directory, optionally filtered by extension."
 
+    def __init__(self, workspace: str = "."):
+        self._workspace = workspace
+
     async def run(
         self,
         path: str = ".",
@@ -154,7 +162,7 @@ class ListDirectoryTool(BaseTool):
         start = time.monotonic()
         exclude = exclude or ["__pycache__", ".git", "node_modules", ".venv", "venv", "dist", "build"]
         try:
-            root = Path(path)
+            root = Path(self._workspace) / path
             if recursive:
                 files = [
                     str(f.relative_to(root))
@@ -183,6 +191,9 @@ class SearchFilesTool(BaseTool):
     name = "search_files"
     description = "Search for a pattern (regex or literal) in files."
 
+    def __init__(self, workspace: str = "."):
+        self._workspace = workspace
+
     async def run(
         self,
         pattern: str,
@@ -197,7 +208,8 @@ class SearchFilesTool(BaseTool):
         try:
             regex = re.compile(pattern)
             results = []
-            for root, dirs, files in os.walk(path):
+            target_path = Path(self._workspace) / path
+            for root, dirs, files in os.walk(target_path):
                 dirs[:] = [d for d in dirs if d not in ["__pycache__", ".git", "node_modules", ".venv"]]
                 for filename in files:
                     if extension and not filename.endswith(extension):
@@ -229,7 +241,8 @@ class ReplaceTextTool(BaseTool):
     name = "replace_text"
     description = "Replace an exact block of text in a file. Safer than write_file for small edits."
 
-    def __init__(self, snapshot_manager=None, run_id: str | None = None):
+    def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
+        self._workspace = workspace
         self._snapshot_manager = snapshot_manager
         self._run_id = run_id
 
@@ -237,7 +250,7 @@ class ReplaceTextTool(BaseTool):
         import time
         start = time.monotonic()
         try:
-            p = Path(path)
+            p = Path(self._workspace) / path
             if not p.exists():
                 return ToolResult(tool=self.name, success=False, output="", error=f"File not found: {path}")
 
@@ -294,7 +307,8 @@ class PatchFileTool(BaseTool):
     name = "patch_file"
     description = "Apply a code patch to an existing file."
 
-    def __init__(self, snapshot_manager=None, run_id: str | None = None):
+    def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
+        self._workspace = workspace
         self._snapshot_manager = snapshot_manager
         self._run_id = run_id
 
@@ -304,7 +318,7 @@ class PatchFileTool(BaseTool):
         patch_path = None
         orig_path = None
         try:
-            p = Path(path)
+            p = Path(self._workspace) / path
             # Snapshot before mutation
             if self._snapshot_manager and self._run_id:
                 self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
@@ -689,12 +703,12 @@ class ToolRegistry:
 
     def _register_defaults(self):
         ws = self._workspace
-        self.register(ReadFileTool())
-        self.register(WriteFileTool())
-        self.register(ListDirectoryTool())
-        self.register(SearchFilesTool())
-        self.register(ReplaceTextTool())
-        self.register(PatchFileTool())
+        self.register(ReadFileTool(workspace=ws))
+        self.register(WriteFileTool(workspace=ws))
+        self.register(ListDirectoryTool(workspace=ws))
+        self.register(SearchFilesTool(workspace=ws))
+        self.register(ReplaceTextTool(workspace=ws))
+        self.register(PatchFileTool(workspace=ws))
         self.register(ShellTool(workspace=ws))
         self.register(WebSearchTool())
         self.register(FetchURLTool())
@@ -719,7 +733,31 @@ class ToolRegistry:
                 tool=name, success=False, output="",
                 error=f"Tool '{name}' not found. Available: {list(self._tools.keys())}",
             )
-            
+
+        # Normalize common LLM parameter hallucinations
+        PARAM_ALIASES = {
+            "file_path": "path",
+            "filepath": "path",
+            "filename": "path",
+            "file": "path",
+            "dir": "path",
+            "directory": "path",
+            "cmd": "command",
+            "command": "command",
+            "query": "pattern",
+            "search": "pattern",
+            "text": "content",
+            "data": "content",
+            "old": "old_text",
+            "new": "new_text",
+            "replacement": "new_text",
+            "original": "old_text",
+        }
+        normalized = {}
+        for k, v in kwargs.items():
+            normalized[PARAM_ALIASES.get(k, k)] = v
+        kwargs = normalized
+
         valid, error_msg = tool.validate_params(kwargs)
         if not valid:
             return ToolResult(
