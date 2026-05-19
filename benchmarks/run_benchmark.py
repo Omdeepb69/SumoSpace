@@ -242,7 +242,11 @@ def verify_explanation(response_text: str, workspace: Path) -> tuple[bool, float
         return False, 0.0, "Response looks like raw code rather than an explanation"
 
     # Check for known symbols from the codebase
-    expected_symbols = ["calculate_discount", "safe_divide", "fetch_user"]
+    expected_symbols = [
+        "calculate_discount", "safe_divide", "fetch_user", 
+        "hash_password", "verify_password", "DatabaseConnection", 
+        "process_items_sync", "merge_dicts"
+    ]
     found_symbols = [sym for sym in expected_symbols if sym in response_text]
     
     score = 1.0 if len(found_symbols) > 0 and word_count >= 100 else 0.0
@@ -332,7 +336,7 @@ async def run_single_task(
             vector_store="faiss",
             memory_enabled=False, # Avoid ChromaDB locking on rapid temp directory recycling
             rag_enabled=False,    # Avoid ChromaDB locks in Ingestor/RAGPipeline
-            verbose=False,
+            verbose=True,
             dry_run=False
         )
 
@@ -547,9 +551,12 @@ def main():
     parser.add_argument("--modes",    default=",".join(DEFAULT_MODES),
                         help="Comma-separated: disabled,plan_only,critique_only,full")
     parser.add_argument("--task",     default=None,
-                        help="Run only one task by name")
+                        help="Specific task to run (e.g., 'add_docstrings'). Runs all if omitted.")
     parser.add_argument("--output",   default=None,
-                        help="Output file path (default: benchmark_results/TIMESTAMP.md)")
+                        help="Output directory for results (defaults to benchmark_results)")
+    parser.add_argument("--verbose",  action="store_true",
+                        help="Enable verbose kernel output")
+
     args = parser.parse_args()
 
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]

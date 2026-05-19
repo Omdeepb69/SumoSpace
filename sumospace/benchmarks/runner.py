@@ -161,7 +161,7 @@ class BenchmarkRunner:
                     trace = await kernel.run(
                         task=task.prompt
                     )
-                    output_text = str(getattr(trace, "final_output", trace))
+                    output_text = str(getattr(trace, "final_answer", trace))
                     # Collect metrics from trace if available
                     tool_calls = len(getattr(trace, "tool_calls", []))
                     tool_failures = sum(

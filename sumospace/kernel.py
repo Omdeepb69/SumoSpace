@@ -892,21 +892,24 @@ class SumoKernel:
         trace: ExecutionTrace,
         context: str,
     ) -> AsyncIterator[str]:
-        """Generate a natural language summary of what was done."""
+        """Generate a natural language response fulfilling the user's task."""
         outputs = "\n\n".join([
-            f"Step {t.step_number} ({t.tool}): {t.result.output[:500]}"
+            f"Step {t.step_number} ({t.tool}): {t.result.output[:4000]}"
             for t in trace.step_traces
             if t.result.output
         ])
 
         system = (
-            "You are a helpful assistant summarising completed tasks.\n"
-            "Given the task and tool outputs, write a clear, concise summary of what was done.\n"
-            "Be specific. Mention files changed, commands run, or answers found."
+            "You are a helpful assistant fulfilling the user's task.\n"
+            "You have executed a set of tools to gather information or perform actions.\n"
+            "Given the user's original task and the outputs from the tools you ran, "
+            "provide a comprehensive and direct answer to the task.\n"
+            "If the task asks for an explanation, explain it fully using the tool outputs.\n"
+            "If the task was an action (e.g., editing files), summarize what changes were made."
         )
-        user = f"Task: {task}\n\nTool outputs:\n{outputs[:3000]}"
+        user = f"Task: {task}\n\nTool outputs:\n{outputs[:16000]}"
         if context:
-            user += f"\n\nContext used:\n{context[:1000]}"
+            user += f"\n\nContext used:\n{context[:2000]}"
 
         try:
             async with self.telemetry.async_span("sumospace.synthesise"):
