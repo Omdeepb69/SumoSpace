@@ -21,7 +21,7 @@ def make_plan(task="test task", steps=None):
             critical=False,
         )
     ]
-    return ExecutionPlan(task=task, steps=steps)
+    return ExecutionPlan(task=task, steps=steps, reasoning="mock reasoning")
 
 
 @pytest.mark.asyncio
@@ -52,6 +52,8 @@ class TestPlannerAgent:
         class GarbageProvider:
             async def complete(self, **kwargs):
                 return "not json at all ~~~ {{{}}"
+            async def complete_structured(self, **kwargs):
+                return "not json at all ~~~ {{{}}"
             async def initialize(self): pass
 
         agent = PlannerAgent(GarbageProvider())
@@ -78,6 +80,8 @@ class TestCriticAgent:
     async def test_critique_fallback_on_bad_json(self):
         class BadProvider:
             async def complete(self, **kwargs):
+                return "totally invalid"
+            async def complete_structured(self, **kwargs):
                 return "totally invalid"
             async def initialize(self): pass
 
@@ -116,6 +120,8 @@ class TestResolverAgent:
         """Provider returns rejected JSON."""
         class RejectProvider:
             async def complete(self, **kwargs):
+                return '{"approved": false, "rejection_reason": "too dangerous"}'
+            async def complete_structured(self, **kwargs):
                 return '{"approved": false, "rejection_reason": "too dangerous"}'
             async def initialize(self): pass
 
@@ -164,6 +170,9 @@ class TestCommittee:
 
         class StrictProvider:
             async def complete(self, user="", system="", **kwargs):
+                return await self.complete_structured(user=user, system=system, **kwargs)
+
+            async def complete_structured(self, user="", system="", **kwargs):
                 call_count[0] += 1
                 # First call: planner
                 if "steps" in system and "planner" in system.lower():
@@ -184,6 +193,7 @@ class TestCommittee:
                         "verdict_reason": "unacceptably dangerous",
                     })
                 return "{}"
+
             async def initialize(self): pass
 
         committee = Committee(StrictProvider(), require_consensus=True)

@@ -21,6 +21,23 @@ def dereference_schema(schema: dict) -> dict:
                     resolved = _resolve(dict(defs[ref_name]))
                     return resolved
                 return node
+            
+            # If it's an object with no properties (like parameters dict), give it a concrete simple schema
+            # to prevent llama.cpp grammar engines from hanging/going slow
+            if node.get("type") == "object" and "properties" not in node and not any(k in node for k in ["additionalProperties", "patternProperties"]):
+                return {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "old_text": {"type": "string"},
+                        "new_text": {"type": "string"},
+                        "command": {"type": "string"},
+                        "query": {"type": "string"},
+                        "url": {"type": "string"},
+                        "pattern": {"type": "string"}
+                    }
+                }
             return {k: _resolve(v) for k, v in node.items()}
         elif isinstance(node, list):
             return [_resolve(item) for item in node]

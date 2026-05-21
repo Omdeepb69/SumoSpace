@@ -58,6 +58,20 @@ class SumoSettings(BaseSettings):
             "Equivalent to dry_run=True but permanent and settings-driven."
         )
     )
+    execution_mode: Literal["plan", "react"] = Field(
+        "react",
+        description=(
+            "Controls how tools are executed after committee approval.\n"
+            "'plan'  — Static: all step parameters are set at planning time, then executed blindly.\n"
+            "'react' — Adaptive: the LLM sees each tool's output before deciding the next action.\n"
+            "Use 'react' for editing tasks where tool parameters depend on prior outputs.\n"
+            "Use 'plan' for simple read-only or deterministic workflows."
+        )
+    )
+    react_max_steps: int = Field(
+        12,
+        description="Maximum number of tool calls in a single ReAct execution loop."
+    )
     rag_enabled: bool = Field(
         True,
         description="If False, skips vector store retrieval entirely. Faster for tasks that don't need codebase context."

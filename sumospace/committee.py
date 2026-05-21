@@ -45,6 +45,7 @@ CRITICAL RULES:
 - Use RELATIVE file paths (e.g., 'utils.py', not '/path/to/utils.py'). The workspace IS the current directory.
 - Be specific. Include actual file paths, commands, parameters.
 - Start with read/scan steps before write steps.
+- To inspect code or find functions, ALWAYS use 'read_file' to examine file contents. Do NOT use 'search_files' with regexes to find code/functions, as LLM regexes are often incorrect.
 - Mark destructive operations (write_file, shell rm, etc.) as critical.
 - Maximum 12 steps. If more are needed, break the task.
 - For file edits, prefer 'replace_text' (surgical edit) over 'write_file' (full overwrite).

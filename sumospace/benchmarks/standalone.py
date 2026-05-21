@@ -299,7 +299,7 @@ async def evaluate_with_llm_judge(task: dict, output_text: str, workspace: Path,
             file_contents += f"\n--- {py_file.name} ---\n{content[:2000]}\n"
             
     prompt = f"""
-You are an expert python grading assistant.
+You are an automated code evaluation system. Do NOT act as a conversational assistant. Do NOT apologize or explain.
 Task: {task['prompt']}
 
 Final Answer from Agent:
@@ -310,7 +310,7 @@ Current Workspace Files (truncated):
 
 Grade the agent's work from 0.0 to 1.0. 
 1.0 means perfect completion. 0.0 means complete failure.
-Output ONLY the float number, nothing else.
+You MUST output EXACTLY ONE float number, nothing else.
 """
     
     settings = SumoSettings(
@@ -320,6 +320,7 @@ Output ONLY the float number, nothing else.
         rag_enabled=False,
         memory_enabled=False,
         execution_enabled=False,
+        verbose=False,
     )
     
     try:
@@ -333,6 +334,7 @@ Output ONLY the float number, nothing else.
     return 0.0
 
 async def check_provider(provider: str, model: str):
+    """Validate that the chosen provider is reachable before starting a run."""
     if provider == "ollama":
         import httpx
         try:
@@ -342,6 +344,7 @@ async def check_provider(provider: str, model: str):
         except Exception:
             print("ERROR: Ollama not running. Start with: ollama serve")
             sys.exit(1)
+    # For openai / openrouter / groq, the API key check happens inside the provider itself
 
 async def run_single_task(
     task: dict,
@@ -390,7 +393,11 @@ async def run_single_task(
                 steps_executed = len(step_traces)
                 called_tools = [s.tool for s in step_traces]
                 tool_calls = len(called_tools)
-                tool_failures = sum(1 for tc in getattr(trace, "tool_calls", []) if not getattr(tc, "success", True))
+                # Count failures from step_traces (result is a ToolResult with .success)
+                tool_failures = sum(
+                    1 for s in step_traces
+                    if hasattr(s, "result") and s.result is not None and not getattr(s.result, "success", True)
+                )
         except Exception as e:
             error_msg = f"Kernel error: {e}"
 
@@ -401,9 +408,8 @@ async def run_single_task(
         try:
             if not error_msg:
                 if task["needs_original"]:
-                    target_file = tmp_ws / str(task["file"])
-                    orig_file = Path(FIXTURES_DIR) / str(task["file"])
-                    success, det_score, notes = task["verifier"](target_file, orig_file)
+                    # Pass workspace dirs, not file paths — verifiers resolve filenames internally
+                    success, det_score, notes = task["verifier"](tmp_ws, Path(FIXTURES_DIR))
                 else:
                     if task["file"] is None:
                         success, det_score, notes = task["verifier"](output_text, tmp_ws)

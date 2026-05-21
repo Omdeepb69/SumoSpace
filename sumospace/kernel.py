@@ -27,6 +27,8 @@ from __future__ import annotations
 import time
 import uuid
 import hashlib
+import json
+import re
 from pathlib import Path
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -575,6 +577,9 @@ class SumoKernel:
             if self.settings.dry_run:
                 trace.final_answer = self._format_dry_run(verdict)
                 trace.success = True
+            elif self.settings.execution_mode == "react":
+                async with self.telemetry.async_span("sumospace.execute.react", attributes={"task": task}):
+                    await self._execute_react(task, verdict.plan, trace, full_context)
             else:
                 async with self.telemetry.async_span("sumospace.execute", attributes={"steps": len(verdict.plan.steps)}):
                     await self._execute_plan(verdict.plan, trace)
@@ -831,6 +836,186 @@ class SumoKernel:
             await self.hooks.trigger("on_task_failed", trace, trace.error)
 
         yield trace
+
+    # ── ReAct Execution ────────────────────────────────────────────────────────
+
+    async def _execute_react(self, task: str, plan: ExecutionPlan, trace: ExecutionTrace, context: str):
+        """
+        ReAct (Reason+Act) execution loop.
+        
+        Instead of executing a static plan with pre-baked parameters, this feeds
+        each tool's output back to the LLM so it can make informed decisions.
+        
+        This solves the fundamental problem where replace_text's old_text was
+        hallucinated at planning time before the file was ever read.
+        """
+        if not self.settings.execution_enabled:
+            trace.final_answer = (
+                f"[Execution disabled] Plan has {len(plan.steps)} steps:\n" +
+                "\n".join(f"  {i+1}. {s.tool}: {s.description}" for i, s in enumerate(plan.steps))
+            )
+            trace.success = True
+            return
+
+        # Build tool descriptions for the ReAct prompt
+        tools_list = self._tools.list_tools()
+        tools_desc = "\n".join([
+            f"- {t['name']}: {t['description']}"
+            for t in tools_list
+            if t['name'] != 'invalid_tool'
+        ])
+
+        # Build the plan outline (high-level guidance, NOT parameter-locked)
+        plan_outline = "\n".join([
+            f"  {s.step_number}. {s.tool}: {s.description}"
+            for s in plan.steps
+        ])
+
+        system = (
+            "You are an autonomous coding agent executing a task step by step.\n"
+            "You have access to these tools:\n"
+            f"{tools_desc}\n\n"
+            "WORKFLOW:\n"
+            "1. Analyze the previous step's result and think about what to do next.\n"
+            "2. Fill in the 'thought' field explaining your reasoning.\n"
+            "3. Fill in the 'tool' field and 'parameters' object to call a tool.\n"
+            "4. When the task is FULLY COMPLETE, set 'tool' to 'done' and use parameters like {\"content\": \"summary of what was accomplished\"}.\n\n"
+            "RULES:\n"
+            "- ALWAYS read a file BEFORE trying to edit it.\n"
+            "- For replace_text, the old_text MUST be copied EXACTLY from the read_file output.\n"
+            "- Do ONE edit at a time. Do NOT try to batch multiple edits.\n"
+        )
+
+        # Conversation history for the ReAct loop
+        messages = [
+            f"TASK: {task}\n\n"
+            f"APPROVED PLAN (use as guidance):\n{plan_outline}\n\n"
+            f"Begin. Call your first tool now."
+        ]
+
+        max_steps = self.settings.react_max_steps
+        step_num = 0
+
+        react_schema = {
+            "type": "object",
+            "properties": {
+                "thought": {
+                    "type": "string",
+                    "description": "Chain-of-thought analysis of what to do next based on previous tool results."
+                },
+                "tool": {
+                    "type": "string",
+                    "description": "Name of the tool to run. Set to 'done' when the task is complete."
+                },
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "old_text": {"type": "string"},
+                        "new_text": {"type": "string"},
+                        "command": {"type": "string"},
+                        "query": {"type": "string"},
+                        "url": {"type": "string"},
+                        "pattern": {"type": "string"}
+                    }
+                }
+            },
+            "required": ["thought", "tool", "parameters"]
+        }
+
+        for iteration in range(max_steps):
+            # Build the full conversation as a single user prompt
+            conversation = "\n\n".join(messages)
+
+            if self.settings.verbose:
+                console.print(f"  [cyan][ReAct {iteration+1}/{max_steps}][/cyan] Thinking...")
+
+            try:
+                raw = await self._provider.complete_structured(
+                    user=conversation,
+                    system=system,
+                    schema=react_schema,
+                    temperature=0.1,
+                    max_tokens=2048,
+                )
+            except Exception as e:
+                if self.settings.verbose:
+                    console.print(f"    [red]✗ LLM error: {e}[/red]")
+                break
+
+            # Parse the LLM's tool call
+            from sumospace.parsing import parse_llm_json
+            try:
+                action, repaired = parse_llm_json(raw)
+            except Exception as e:
+                if self.settings.verbose:
+                    console.print(f"    [red]✗ JSON parse failed for raw response:[/red]\n{raw}\nError: {e}")
+                messages.append(f"ERROR: Could not parse your response as JSON: {e}. Respond with ONLY a JSON object containing 'thought', 'tool', and 'parameters'.")
+                continue
+
+            tool_name = action.get("tool", "").strip()
+            parameters = action.get("parameters", {})
+            thought = action.get("thought", "").strip()
+
+            if thought and self.settings.verbose:
+                console.print(f"    [dim]Thought: {thought}[/dim]")
+
+            # Check for completion
+            if tool_name == "done":
+                summary = action.get("summary") or parameters.get("content") or "Task completed."
+                if self.settings.verbose:
+                    console.print(f"    [green]✓ Done:[/green] {summary}")
+                trace.final_answer = summary
+                break
+
+            # Execute the tool
+            step_num += 1
+            if self.settings.verbose:
+                console.print(
+                    f"  [cyan][{step_num}][/cyan] "
+                    f"{tool_name}: {json.dumps(parameters)[:120]}"
+                )
+
+            await self.hooks.trigger("on_step_start", None)
+
+            step_start = time.monotonic()
+            async with self.telemetry.async_span(f"sumospace.react.{tool_name}"):
+                result = await self._tools.execute(tool_name, **parameters)
+            step_ms = (time.monotonic() - step_start) * 1000
+
+            # Create a step trace
+            step_trace = StepTrace(
+                step_number=step_num,
+                tool=tool_name,
+                description=f"ReAct step: {tool_name}",
+                result=result,
+                duration_ms=step_ms,
+            )
+            trace.step_traces.append(step_trace)
+
+            # Format result for the conversation
+            if result.success:
+                output_preview = result.output[:3000] if result.output else "(no output)"
+                messages.append(
+                    f"TOOL RESULT ({tool_name}): SUCCESS\n{output_preview}"
+                )
+                if self.settings.verbose:
+                    preview = result.output[:120].replace("\n", " ") if result.output else "(ok)"
+                    console.print(f"    [green]✓[/green] {preview}{'...' if result.output and len(result.output) > 120 else ''}")
+                await self.hooks.trigger("on_step_complete", step_trace)
+            else:
+                messages.append(
+                    f"TOOL RESULT ({tool_name}): FAILED\nError: {result.error}\n"
+                    "Fix the error and try again with corrected parameters."
+                )
+                if self.settings.verbose:
+                    console.print(f"    [red]✗ {result.error}[/red]")
+                await self.hooks.trigger("on_step_failed", None, result.error)
+
+            messages.append("What is your next action? Respond with a JSON tool call, or {\"tool\": \"done\", \"summary\": \"...\"} if the task is complete.")
+
+        trace.success = any(t.result.success for t in trace.step_traces) if trace.step_traces else False
 
     # ── Plan Execution ───────────────────────────────────────────────────────
 

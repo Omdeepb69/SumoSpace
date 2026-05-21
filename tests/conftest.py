@@ -26,6 +26,11 @@ class MockProvider:
             return '{"approved": true, "approval_notes": "approved", "reasoning": "ok", "estimated_duration_s": 5, "steps": [{"step_number": 1, "tool": "shell", "description": "echo", "parameters": {"command": "echo hello"}, "critical": false}]}'
         return f"Mock response to: {user[:50]}"
 
+    async def complete_structured(self, user: str = "", system: str = "", schema: dict | None = None,
+                                   temperature: float = 0.1, max_tokens: int = 2048) -> str:
+        """Delegates to complete() — the mock already returns valid JSON."""
+        return await self.complete(user=user, system=system, temperature=temperature, max_tokens=max_tokens)
+
     async def stream(self, user: str, system: str = "", temperature: float = 0.2):
         yield await self.complete(user, system, temperature)
 

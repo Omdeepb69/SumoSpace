@@ -272,6 +272,9 @@ class ReplaceTextTool(BaseTool):
             if not p.exists():
                 return ToolResult(tool=self.name, success=False, output="", error=f"File not found: {path}")
 
+            if not old_text:
+                return ToolResult(tool=self.name, success=False, output="", error="old_text cannot be empty. Please provide the exact text you want to replace.")
+
             # Normalize line endings to prevent brittle LLM serialization failures
             content = p.read_text(encoding="utf-8").replace("\r\n", "\n")
             search_text = old_text.replace("\r\n", "\n")
@@ -280,10 +283,64 @@ class ReplaceTextTool(BaseTool):
             matches = content.count(search_text)
             
             if matches == 0:
-                return ToolResult(
-                    tool=self.name, success=False, output="",
-                    error="old_text not found in file. Ensure exact indentation and matching."
-                )
+                # 2. Flexible Whitespace Match Fallback
+                old_lines = [line.strip() for line in search_text.splitlines()]
+                while old_lines and not old_lines[0]: old_lines.pop(0)
+                while old_lines and not old_lines[-1]: old_lines.pop()
+
+                if not old_lines:
+                    return ToolResult(
+                        tool=self.name, success=False, output="",
+                        error="old_text not found in file (and old_text is empty or just whitespace)."
+                    )
+
+                content_lines = content.splitlines()
+                content_lines_stripped = [line.strip() for line in content_lines]
+
+                match_start = -1
+                matches_found = 0
+                for i in range(len(content_lines_stripped) - len(old_lines) + 1):
+                    if content_lines_stripped[i:i+len(old_lines)] == old_lines:
+                        matches_found += 1
+                        match_start = i
+
+                if matches_found == 0:
+                    return ToolResult(
+                        tool=self.name, success=False, output="",
+                        error="old_text not found in file (even ignoring whitespace/indentation). Ensure matching."
+                    )
+                elif matches_found > 1:
+                    return ToolResult(
+                        tool=self.name, success=False, output="",
+                        error=f"old_text matched {matches_found} locations (ignoring whitespace). Please provide more context."
+                    )
+                
+                # Exactly 1 flexible match!
+                match_end = match_start + len(old_lines)
+                search_text = "\n".join(content_lines[match_start:match_end])
+                
+                # Intelligent indentation adjustment
+                # If the LLM forgot to indent the replacement block, we add the base indentation back.
+                first_line = next((line for line in content_lines[match_start:match_end] if line.strip()), "")
+                import re
+                base_indent = re.match(r"^[ \t]*", first_line).group(0) if first_line else ""
+                
+                repl_lines = replacement.split("\n")
+                first_repl_line = next((line for line in repl_lines if line.strip()), "")
+                repl_indent = re.match(r"^[ \t]*", first_repl_line).group(0) if first_repl_line else ""
+                
+                # Only adjust if original has indentation and replacement lacks it (or has less)
+                if base_indent and len(repl_indent) < len(base_indent):
+                    diff_indent = base_indent[len(repl_indent):]
+                    adjusted_repl = []
+                    for line in repl_lines:
+                        if line.strip():
+                            adjusted_repl.append(diff_indent + line)
+                        else:
+                            adjusted_repl.append("")
+                    replacement = "\n".join(adjusted_repl)
+                
+                matches = 1 # Force progression
             
             if matches > 1:
                 import re
