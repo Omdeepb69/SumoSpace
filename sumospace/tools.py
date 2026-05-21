@@ -817,8 +817,8 @@ class ToolRegistry:
     def get(self, name: str) -> BaseTool | None:
         return self._tools.get(name)
 
-    def list_tools(self) -> list[dict[str, str]]:
-        return [{"name": t.name, "description": t.description} for t in self._tools.values()]
+    def list_tools(self) -> list[dict[str, any]]:
+        return [{"name": t.name, "description": t.description, "schema": getattr(t, "schema", {})} for t in self._tools.values()]
 
 
     async def execute(self, name: str, **kwargs) -> ToolResult:

@@ -859,8 +859,9 @@ class SumoKernel:
 
         # Build tool descriptions for the ReAct prompt
         tools_list = self._tools.list_tools()
+        import json
         tools_desc = "\n".join([
-            f"- {t['name']}: {t['description']}"
+            f"- {t['name']}: {t['description']}\n  Parameters: {json.dumps(t['schema'].get('properties', {}))}"
             for t in tools_list
             if t['name'] != 'invalid_tool'
         ])

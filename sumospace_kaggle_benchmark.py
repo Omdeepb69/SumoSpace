@@ -371,8 +371,9 @@ async def section7():
 
         class CountWordsTool(BaseTool):
             name = "count_words"
-            description = "Counts the number of words in a string."
-            schema = {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+            description = "Counts the number of words in a given text string. Parameter: text (string, required)."
+            schema = {"type": "object", "properties": {"text": {"type": "string", "description": "The text string to count words in."}}, "required": ["text"]}
+            param_aliases = {"content": "text", "string": "text", "input": "text", "data": "text"}
             async def run(self, text: str, **kwargs) -> ToolResult:
                 return ToolResult(tool=self.name, success=True, output=str(len(text.split())))
 

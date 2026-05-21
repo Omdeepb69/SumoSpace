@@ -165,8 +165,11 @@ def verify_async(workspace: Path) -> tuple[bool, float, str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name == "asyncio":
+                if alias.name in ("asyncio", "aiohttp", "httpx"):
                     has_asyncio = True
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split(".")[0] in ("asyncio", "aiohttp", "httpx"):
+                has_asyncio = True
         elif isinstance(node, ast.FunctionDef):
             total_funcs += 1
         elif isinstance(node, ast.AsyncFunctionDef):
@@ -326,7 +329,7 @@ You MUST output EXACTLY ONE float number, nothing else.
     try:
         async with SumoKernel(settings=settings) as kernel:
             trace = await kernel.run(prompt)
-            match = re.search(r'0\.\d+|1\.0', trace.final_answer)
+            match = re.search(r'[01]\.\d+', trace.final_answer)
             if match:
                 return float(match.group())
     except Exception as e:
