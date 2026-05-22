@@ -86,8 +86,6 @@ try:
     
     print("\n5. Pulling models (qwen2.5-coder:14b for higher quality, fits T4 16GB at ~10GB 4-bit)...")
     subprocess.run("ollama pull qwen2.5-coder:14b", shell=True, check=False)
-    print("Also pulling qwen2.5-coder:7b as a fast fallback...")
-    subprocess.run("ollama pull qwen2.5-coder:7b", shell=True, check=False)
 
     import sys
     if "/kaggle/working/SumoSpace" not in sys.path:
@@ -281,6 +279,15 @@ async def section5():
             print(f"Loaded {len(yt_chunks)} chunks from YouTube.")
             if yt_chunks:
                 print(f"Preview: {yt_chunks[0].text[:100]}...")
+                
+            print("\nTesting YouTube media download (Audio extraction)...")
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                audio_path = await yt_loader.download_media("https://www.youtube.com/watch?v=kJQP7kiw5Fk", output_dir=tmpdir, extract_audio=True)
+                if os.path.exists(audio_path):
+                    print(f"Successfully downloaded audio to {audio_path} ({os.path.getsize(audio_path)} bytes)")
+                else:
+                    print("Failed to download audio.")
         except Exception as yt_e:
             print(f"\n[Warning] YouTube loader failed (likely IP ban on cloud provider): {yt_e}")
             print("Skipping YouTube test and proceeding...")
