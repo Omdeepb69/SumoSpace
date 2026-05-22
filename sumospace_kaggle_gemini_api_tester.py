@@ -64,7 +64,7 @@ try:
         from kaggle_secrets import UserSecretsClient
         user_secrets = UserSecretsClient()
         gemini_api_key = user_secrets.get_secret("GEMINI_STUDIO_API_KEY")
-        os.environ["GEMINI_API_KEY"] = gemini_api_key
+        os.environ["GOOGLE_API_KEY"] = gemini_api_key
         print("Successfully loaded Gemini API key from secrets.")
     except Exception as e:
         print(f"Warning: Could not fetch Kaggle secret (are you running locally?): {e}")
