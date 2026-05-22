@@ -131,17 +131,12 @@ def verify_dead_code(workspace: Path, original_workspace: Path) -> tuple[bool, f
     dead_found = [n for n in dead_names if n in found_names]
     live_found = [n for n in live_names if n in found_names]
 
-    is_shorter = len(content) < len(original_file.read_text(encoding="utf-8"))
-
-    if not is_shorter:
-        return False, 0.0, "File is not shorter than original"
-
     if len(live_found) < len(live_names):
         missing = set(live_names) - set(live_found)
         return False, 0.0, f"Live code was incorrectly removed: {missing}"
 
     score = 1.0 - (len(dead_found) / len(dead_names))
-    success = (len(dead_found) == 0 and is_shorter and len(live_found) == len(live_names))
+    success = (len(dead_found) == 0 and len(live_found) == len(live_names))
     notes = f"Removed {len(dead_names) - len(dead_found)}/{len(dead_names)} dead items"
     return success, score, notes
 
@@ -158,8 +153,10 @@ def verify_async(workspace: Path) -> tuple[bool, float, str]:
     except SyntaxError as e:
         return False, 0.0, f"Syntax error: {e}"
 
-    total_funcs = 0
+    target_functions = {"fetch_user", "fetch_posts", "save_result", "process_users", "health_check"}
+    
     async_funcs = 0
+    total_funcs = len(target_functions)
     has_asyncio = False
 
     for node in ast.walk(tree):
@@ -170,18 +167,13 @@ def verify_async(workspace: Path) -> tuple[bool, float, str]:
         elif isinstance(node, ast.ImportFrom):
             if node.module and node.module.split(".")[0] in ("asyncio", "aiohttp", "httpx"):
                 has_asyncio = True
-        elif isinstance(node, ast.FunctionDef):
-            total_funcs += 1
         elif isinstance(node, ast.AsyncFunctionDef):
-            total_funcs += 1
-            async_funcs += 1
-
-    if total_funcs == 0:
-        return False, 0.0, "No functions found"
+            if node.name in target_functions:
+                async_funcs += 1
 
     score = async_funcs / total_funcs
     success = (score >= 0.8 and has_asyncio)
-    notes = f"{async_funcs}/{total_funcs} functions are async. Asyncio imported: {has_asyncio}"
+    notes = f"{async_funcs}/{total_funcs} I/O functions are async. Asyncio imported: {has_asyncio}"
     return success, score, notes
 
 

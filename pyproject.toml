@@ -95,6 +95,7 @@ loaders = [
     "httpx>=0.27",
     "beautifulsoup4>=4.12",
     "youtube-transcript-api>=0.6",
+    "yt-dlp>=2023.0",
 ]
 loaders-ocr = [
     "sumospace[loaders]",

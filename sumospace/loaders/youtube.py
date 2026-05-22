@@ -114,3 +114,56 @@ class YouTubeLoader:
             for i, chunk in enumerate(text_chunks)
             if chunk.strip()
         ]
+
+    async def download_media(self, url: str, output_dir: str = ".", extract_audio: bool = False, max_duration: int | None = None) -> str:
+        """
+        Download video or audio from YouTube using yt-dlp.
+        Returns the path to the downloaded file.
+        """
+        try:
+            import yt_dlp
+        except ImportError:
+            raise ImportError(
+                "yt-dlp is not installed. "
+                "Run: pip install sumospace[loaders]"
+            )
+
+        video_id = _extract_video_id(url)
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        def _download():
+            import os
+            os.makedirs(output_dir, exist_ok=True)
+            ydl_opts = {
+                'outtmpl': f'{output_dir}/%(id)s.%(ext)s',
+                'quiet': True,
+                'no_warnings': True,
+            }
+            if extract_audio:
+                ydl_opts['format'] = 'bestaudio/best'
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }]
+            else:
+                ydl_opts['format'] = 'worst[ext=mp4]' # Use worst format for fast benchmark downloads
+
+            if max_duration:
+                def filter_func(info, *args, **kwargs):
+                    if info.get('duration', 0) > max_duration:
+                        return 'Video too long'
+                    return None
+                ydl_opts['match_filter'] = filter_func
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(video_url, download=True)
+                if extract_audio:
+                    return f"{output_dir}/{info['id']}.mp3"
+                else:
+                    return f"{output_dir}/{info['id']}.{info['ext']}"
+
+        return await loop.run_in_executor(None, _download)
