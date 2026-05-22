@@ -76,10 +76,10 @@ class ProviderRouter:
         self._provider = cls(**init_kwargs)
         await self._provider.initialize()
         
-        # If cloud provider, set HF as secondary fallback
-        if self._provider_name in ["gemini", "openai", "anthropic"]:
-            self._secondary = HuggingFaceProvider(model="default")
-            await self._secondary.initialize()
+        # If cloud provider, set HF as secondary fallback (DISABLED for Kaggle to save RAM)
+        # if self._provider_name in ["gemini", "openai", "anthropic"]:
+        #     self._secondary = HuggingFaceProvider(model="default")
+        #     await self._secondary.initialize()
 
     def get_output_strategy(self) -> str:
         """Determines the best strategy for structured output routing."""
