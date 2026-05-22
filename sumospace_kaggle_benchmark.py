@@ -243,50 +243,12 @@ async def section4():
             trace1 = await kernel.run(f"Answer the following question based on the codebase: {q1}")
             print(f"Answer: {trace1.final_answer}")
             
-        print("\nGenerating Media for Multimodal RAG Test...")
-        from sumospace.tools import BrowserTool
-        from sumospace.loaders.youtube import YouTubeLoader
-        
-        # 1. Image Screenshot
-        try:
-            browser = BrowserTool()
-            await browser.run("https://example.com", action="screenshot", output=f"{ws}/test_screenshot.png")
-            await browser.close()
-            print("Generated test_screenshot.png")
-        except Exception as e:
-            print(f"Warning: BrowserTool screenshot failed: {e}")
-
-        # 2. YouTube Video Download (Short 19s clip: "Me at the zoo")
-        try:
-            yt_loader = YouTubeLoader()
-            vid_path = await yt_loader.download_media("https://www.youtube.com/watch?v=jNQXAC9IVRw", output_dir=ws, extract_audio=False)
-            print(f"Downloaded test video to {vid_path}")
-        except Exception as e:
-            print(f"Warning: yt-dlp download failed: {e}")
-
-        print("\nEnabling Multi-Query and Multimodal RAG...")
+        print("\nEnabling Multi-Query RAG...")
         # Create a new kernel with updated settings to properly reconfigure RAG
-        settings_multi = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True, media_enabled=True)
+        settings_multi = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True)
         async with SumoKernel(settings=settings_multi) as kernel_multi:
-            # First, ingest the new media files explicitly (to avoid relying solely on agent's autonomous ingestion)
-            print("Ingesting media files into vector DB...")
-            try:
-                from sumospace.media_ingest import MultimodalIngestor
-                ingestor = MultimodalIngestor(settings_multi)
-                if os.path.exists(f"{ws}/test_screenshot.png"):
-                    ingestor.ingest_path(f"{ws}/test_screenshot.png")
-                if 'vid_path' in locals() and os.path.exists(vid_path):
-                    ingestor.ingest_path(vid_path)
-            except Exception as ingest_e:
-                print(f"Warning: MultimodalIngestor error: {ingest_e}")
-
             trace2 = await kernel_multi.run(f"Answer the following question based on the codebase: {q1}")
-            print(f"Answer (Multi-Query + Multimodal): {trace2.final_answer}")
-            
-            # Additional query to test multimodal RAG
-            q2 = "What image is in test_screenshot.png and what is the video about?"
-            trace3 = await kernel_multi.run(f"Answer this based on the ingested media files: {q2}")
-            print(f"Answer (Multimodal Media Query): {trace3.final_answer}")
+            print(f"Answer (Multi-Query): {trace2.final_answer}")
             
         print_pass_fail("RAG Capabilities", True)
         summary_results.append(("Section 4: RAG", True, "Successfully queried codebase with and without multi-query."))

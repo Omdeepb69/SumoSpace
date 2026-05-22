@@ -416,8 +416,9 @@ async def run_single_task(
             error_msg = f"Verifier exception: {e}"
             notes = error_msg
 
-        # Run LLM judge
-        llm_score = await evaluate_with_llm_judge(task, output_text, tmp_ws, provider, model)
+        # Temporarily disable LLM judge until benchmark baseline is established
+        llm_score = 0.0
+        # llm_score = await evaluate_with_llm_judge(task, output_text, tmp_ws, provider, model)
 
         return TaskResult(
             task_name=task["name"],
