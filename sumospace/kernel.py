@@ -297,7 +297,9 @@ class SumoKernel:
                 await self._secondary_provider.initialize()
 
             # 2. Tool registry
-            self._tools = ToolRegistry(workspace=cfg.workspace)
+            from sumospace.snapshots import SnapshotManager
+            self._snapshot_manager = SnapshotManager(cfg)
+            self._tools = ToolRegistry(workspace=cfg.workspace, snapshot_manager=self._snapshot_manager)
 
             # 3. Scope resolution
             #    If user_id is set, build a ScopeManager and resolve paths.
@@ -498,7 +500,7 @@ class SumoKernel:
             web_context = ""
             if classification.needs_web:
                 async with self.telemetry.async_span("sumospace.web_search", attributes={"task": task}):
-                    web_result = await self._tools.execute("web_search", query=task)
+                    web_result = await self._tools.execute("web_search", run_id=session_id, query=task)
                 if web_result.success:
                     web_context = web_result.output
 
@@ -707,7 +709,7 @@ class SumoKernel:
             web_context = ""
             if classification.needs_web:
                 async with self.telemetry.async_span("sumospace.web_search", attributes={"task": task}):
-                    web_result = await self._tools.execute("web_search", query=task)
+                    web_result = await self._tools.execute("web_search", run_id=trace.session_id, query=task)
                 if web_result.success:
                     web_context = web_result.output
 
@@ -787,7 +789,7 @@ class SumoKernel:
                 for step in verdict.plan.steps:
                     await self.hooks.trigger("on_step_start", step)
                     step_start = time.monotonic()
-                    result = await self._tools.execute(step.tool, **step.parameters)
+                    result = await self._tools.execute(step.tool, run_id=trace.session_id, **step.parameters)
                     step_ms = (time.monotonic() - step_start) * 1000
 
                     step_trace = StepTrace(
@@ -982,7 +984,7 @@ class SumoKernel:
 
             step_start = time.monotonic()
             async with self.telemetry.async_span(f"sumospace.react.{tool_name}"):
-                result = await self._tools.execute(tool_name, **parameters)
+                result = await self._tools.execute(tool_name, run_id=trace.session_id, **parameters)
             step_ms = (time.monotonic() - step_start) * 1000
 
             # Create a step trace
@@ -1041,7 +1043,7 @@ class SumoKernel:
 
             step_start = time.monotonic()
             async with self.telemetry.async_span(f"sumospace.tool.{step.tool}", attributes={"description": step.description}):
-                result = await self._tools.execute(step.tool, **step.parameters)
+                result = await self._tools.execute(step.tool, run_id=trace.session_id, **step.parameters)
             step_ms = (time.monotonic() - step_start) * 1000
 
             step_trace = StepTrace(

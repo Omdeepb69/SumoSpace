@@ -760,9 +760,10 @@ class ToolRegistry:
     The kernel uses this to look up and execute tools by name.
     """
 
-    def __init__(self, workspace: str = "."):
+    def __init__(self, workspace: str = ".", snapshot_manager=None):
         self._tools: dict[str, BaseTool] = {}
         self._workspace = workspace
+        self._snapshot_manager = snapshot_manager
         self._register_defaults()
 
     def _discover_plugins(self):
@@ -796,12 +797,13 @@ class ToolRegistry:
 
     def _register_defaults(self):
         ws = self._workspace
+        sm = self._snapshot_manager
         self.register(ReadFileTool(workspace=ws))
-        self.register(WriteFileTool(workspace=ws))
+        self.register(WriteFileTool(workspace=ws, snapshot_manager=sm))
         self.register(ListDirectoryTool(workspace=ws))
         self.register(SearchFilesTool(workspace=ws))
-        self.register(ReplaceTextTool(workspace=ws))
-        self.register(PatchFileTool(workspace=ws))
+        self.register(ReplaceTextTool(workspace=ws, snapshot_manager=sm))
+        self.register(PatchFileTool(workspace=ws, snapshot_manager=sm))
         self.register(ShellTool(workspace=ws))
         self.register(WebSearchTool())
         self.register(FetchURLTool())
@@ -821,13 +823,16 @@ class ToolRegistry:
         return [{"name": t.name, "description": t.description, "schema": getattr(t, "schema", {})} for t in self._tools.values()]
 
 
-    async def execute(self, name: str, **kwargs) -> ToolResult:
+    async def execute(self, name: str, run_id: str | None = None, **kwargs) -> ToolResult:
         tool = self.get(name)
         if not tool:
             return ToolResult(
                 tool=name, success=False, output="",
                 error=f"Tool '{name}' not found. Available: {list(self._tools.keys())}",
             )
+
+        if hasattr(tool, "_run_id"):
+            tool._run_id = run_id
 
         # Normalize LLM parameter hallucinations based on tool-scoped aliases
         normalized = {}

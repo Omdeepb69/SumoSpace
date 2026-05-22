@@ -417,7 +417,7 @@ async def section8():
     global test_session_id
     try:
         # Create a new AuditLogger scoped to the workspace used earlier or current dir
-        logger = AuditLogger(SumoSettings())
+        logger = AuditLogger(SumoSettings(provider="ollama", model="qwen2.5-coder:14b"))
         
         print("Audit Stats:")
         stats = logger.stats()
@@ -429,7 +429,7 @@ async def section8():
             print(f" - {s.get('session_id')} | Duration: {s.get('duration_ms')}ms | Success: {s.get('success')}")
             
         print("Generating a quick session to test export...")
-        async with SumoKernel(settings=SumoSettings()) as kernel:
+        async with SumoKernel(settings=SumoSettings(provider="ollama", model="qwen2.5-coder:14b")) as kernel:
             trace = await kernel.run("Say 'hello audit'")
             target_session = trace.session_id
             
