@@ -122,12 +122,12 @@ async def section2():
     try:
         print("Available Presets:")
         presets = {
-            "for_chat":              SumoSettings.for_chat(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05"),
-            "for_chat_with_context": SumoSettings.for_chat_with_context(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05"),
-            "for_chat_stateless":    SumoSettings.for_chat_stateless(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05"),
-            "for_coding":            SumoSettings.for_coding(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05"),
-            "for_research":          SumoSettings.for_research(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05"),
-            "for_review":            SumoSettings.for_review(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05"),
+            "for_chat":              SumoSettings.for_chat(provider="gemini", model="gemini-1.5-flash"),
+            "for_chat_with_context": SumoSettings.for_chat_with_context(provider="gemini", model="gemini-1.5-flash"),
+            "for_chat_stateless":    SumoSettings.for_chat_stateless(provider="gemini", model="gemini-1.5-flash"),
+            "for_coding":            SumoSettings.for_coding(provider="gemini", model="gemini-1.5-flash"),
+            "for_research":          SumoSettings.for_research(provider="gemini", model="gemini-1.5-flash"),
+            "for_review":            SumoSettings.for_review(provider="gemini", model="gemini-1.5-flash"),
         }
         for name, preset in presets.items():
             print(f" - {name}")
@@ -140,7 +140,7 @@ async def section2():
         print("-" * 80)
         
         for mode in modes:
-            settings = SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05", vector_store="faiss", committee_enabled=(mode!="disabled"), committee_mode=mode if mode!="disabled" else "full")
+            settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", committee_enabled=(mode!="disabled"), committee_mode=mode if mode!="disabled" else "full")
             start = time.time()
             async with SumoKernel(settings=settings) as kernel:
                 try:
@@ -179,7 +179,7 @@ async def section3():
             print("Before editing:")
             print(file_path.read_text())
             
-            settings = SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05", vector_store="faiss", workspace=tmpdir)
+            settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", workspace=tmpdir)
             async with SumoKernel(settings=settings) as kernel:
                 trace = await kernel.run("Add docstrings to all functions in math_ops.py")
                 session_id = trace.session_id
@@ -233,7 +233,7 @@ async def section4():
             print("SumoSpace source not found. Using current directory.")
             ws = "."
             
-        settings = SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=False)
+        settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=False)
         
         async with SumoKernel(settings=settings) as kernel:
             print("Ingesting codebase...")
@@ -244,7 +244,7 @@ async def section4():
             
         print("\nEnabling Multi-Query RAG...")
         # Create a new kernel with updated settings to properly reconfigure RAG
-        settings_multi = SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True)
+        settings_multi = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True)
         async with SumoKernel(settings=settings_multi) as kernel_multi:
             trace2 = await kernel_multi.run(f"Answer the following question based on the codebase: {q1}")
             print(f"Answer (Multi-Query): {trace2.final_answer}")
@@ -340,7 +340,7 @@ async def section6():
     hooks.register("on_kernel_shutdown", h_shutdown)
     
     try:
-        settings = SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05", vector_store="faiss")
+        settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss")
         async with SumoKernel(settings=settings, hooks=hooks) as kernel:
             await kernel.run("Calculate 5 + 5 using python")
             
@@ -391,7 +391,7 @@ async def section7():
         print(f"Direct test reverse_string('SumoSpace'): {(await tool1.run(text='SumoSpace')).output}")
         print(f"Direct test count_words('Hello world from Kaggle'): {(await tool2.run(text='Hello world from Kaggle')).output}")
 
-        settings = SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05", vector_store="faiss")
+        settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss")
         async with SumoKernel(settings=settings) as kernel:
             kernel.tools.register(tool1)
             kernel.tools.register(tool2)
@@ -425,7 +425,7 @@ async def section8():
     global test_session_id
     try:
         # Create a new AuditLogger scoped to the workspace used earlier or current dir
-        logger = AuditLogger(SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05"))
+        logger = AuditLogger(SumoSettings(provider="gemini", model="gemini-1.5-flash"))
         
         print("Audit Stats:")
         stats = logger.stats()
@@ -437,7 +437,7 @@ async def section8():
             print(f" - {s.get('session_id')} | Duration: {s.get('duration_ms')}ms | Success: {s.get('success')}")
             
         print("Generating a quick session to test export...")
-        async with SumoKernel(settings=SumoSettings(provider="gemini", model="gemini-2.0-flash-lite-preview-02-05")) as kernel:
+        async with SumoKernel(settings=SumoSettings(provider="gemini", model="gemini-1.5-flash")) as kernel:
             trace = await kernel.run("Say 'hello audit'")
             target_session = trace.session_id
             
@@ -473,7 +473,7 @@ try:
     cmd = [
         "python", "-m", "sumospace.benchmarks.standalone",
         "--provider", "gemini",
-        "--model", "gemini-2.0-flash-lite-preview-02-05",
+        "--model", "gemini-1.5-flash",
         "--modes", "disabled,plan_only,critique_only,full"
     ]
     
