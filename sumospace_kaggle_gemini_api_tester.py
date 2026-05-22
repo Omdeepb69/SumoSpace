@@ -80,10 +80,13 @@ try:
         shutil.rmtree("/kaggle/working/.sumo_db", ignore_errors=True)
         
     os.makedirs("/kaggle/working", exist_ok=True)
-    subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=False)
-        
     print("\n4. Installing SumoSpace from cloned repository with Gemini support...")
-    subprocess.run("pip install -e /kaggle/working/SumoSpace[media,loaders,faiss,gemini]", shell=True, check=False)
+    if os.path.exists(repo_dir) and os.path.isdir(os.path.join(repo_dir, ".git")):
+        subprocess.run(f"cd {repo_dir} && git fetch --all && git reset --hard origin/main", shell=True, check=True)
+    else:
+        subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=True)
+        
+    subprocess.run("pip install -e /kaggle/working/SumoSpace[media,loaders,faiss,gemini]", shell=True, check=True)
 
     import sys
     if "/kaggle/working/SumoSpace" not in sys.path:
