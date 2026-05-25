@@ -1,26 +1,41 @@
 import asyncio
-import os
-from sumospace.committee import PlannerAgent
-from sumospace.providers import OllamaProvider
+from sumospace.providers.gemini import GeminiProvider
+import json
 
-async def run():
-    provider = OllamaProvider("llama3:8b")
-    await provider.connect()
+schema = {
+    "type": "object",
+    "properties": {
+        "thoughts": {"type": "string"},
+        "steps": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "target": {"type": "string"},
+                    "description": {"type": "string"}
+                },
+                "required": ["action", "target", "description"]
+            }
+        }
+    },
+    "required": ["thoughts", "steps"]
+}
+
+async def main():
+    provider = GeminiProvider(model="gemini-3.1-flash-lite")
+    await provider.initialize()
+    
+    res = await provider.complete_structured(
+        user="Write a python function to compute the 10th fibonacci number.",
+        system="You are a planner. Return JSON.",
+        schema=schema
+    )
+    print("RAW:", res)
     try:
-        planner = PlannerAgent(provider)
-        
-        # Simulate the prompt
-        task = "Add Google-style docstrings to all public functions in auth.py, database.py, and utils.py. Do not change any logic. Only add docstrings."
-        context = "AVAILABLE TOOLS:\nreplace_text\nread_file"
-        
-        # We set this to see the raw output
-        os.environ["DEBUG_PLANNER"] = "1"
-        plan, raw_clean = await planner.plan(task, context)
-        print("Plan steps:", len(plan.steps))
-        print("Reasoning:", plan.reasoning)
-        if not plan.steps:
-            print("Raw output:", plan.raw_output)
-    finally:
-        await provider.disconnect()
+        data = json.loads(res)
+        print("PARSED:", data)
+    except Exception as e:
+        print("PARSE ERROR:", e)
 
-asyncio.run(run())
+asyncio.run(main())

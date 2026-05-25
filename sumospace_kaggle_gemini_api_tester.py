@@ -45,71 +45,78 @@ test_session_id = None # Store a session ID for the audit log section
 # -----------------------------------------------------------------------------
 # Section 1 — Environment setup
 # -----------------------------------------------------------------------------
-print_section("Section 1 — Environment setup", 
-              "Check GPU with nvidia-smi, fetch Kaggle Gemini Secret, "
-              "install SumoSpace, clone the repo, and define imports.")
-
-try:
-    print("1. Checking GPU:")
-    subprocess.run("nvidia-smi", shell=True, check=False)
-    
-    print("\n1.5 Installing dependencies (nest_asyncio for Jupyter)...")
-    subprocess.run("pip install nest_asyncio google-generativeai", shell=True, check=False)
-    
-    import nest_asyncio
-    nest_asyncio.apply()
-    
-    print("\n2. Fetching GEMINI_STUDIO_API_KEY from Kaggle Secrets...")
-    try:
-        from kaggle_secrets import UserSecretsClient
-        user_secrets = UserSecretsClient()
-        gemini_api_key = user_secrets.get_secret("GEMINI_STUDIO_API_KEY")
-        os.environ["GOOGLE_API_KEY"] = gemini_api_key
-        print("Successfully loaded Gemini API key from secrets.")
-    except Exception as e:
-        print(f"Warning: Could not fetch Kaggle secret (are you running locally?): {e}")
-    
-    print("\n3. Cleaning up old installs and databases...")
-    subprocess.run("pip uninstall -y sumospace", shell=True, check=False)
-    repo_dir = "/kaggle/working/SumoSpace"
-    if os.path.exists(repo_dir):
-        import shutil
-        shutil.rmtree(repo_dir, ignore_errors=True)
-    if os.path.exists("/kaggle/working/.sumo_db"):
-        import shutil
-        shutil.rmtree("/kaggle/working/.sumo_db", ignore_errors=True)
-        
-    os.makedirs("/kaggle/working", exist_ok=True)
-    print("\n4. Installing SumoSpace from cloned repository with Gemini support...")
-    if os.path.exists(repo_dir) and os.path.isdir(os.path.join(repo_dir, ".git")):
-        subprocess.run(f"cd {repo_dir} && git fetch --all && git reset --hard origin/main", shell=True, check=True)
-    else:
-        subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=True)
-        
-    subprocess.run("pip install -e /kaggle/working/SumoSpace[media,loaders,faiss,gemini]", shell=True, check=True)
-
-    import sys
-    if "/kaggle/working/SumoSpace" not in sys.path:
-        sys.path.insert(0, "/kaggle/working/SumoSpace")
-        
-    # Force Jupyter to drop cached modules from previous cell runs
-    import sys
-    for mod in list(sys.modules.keys()):
-        if mod == "sumospace" or mod.startswith("sumospace."):
-            del sys.modules[mod]
-
-    from sumospace import SumoKernel, SumoSettings
-    from sumospace.tools import BaseTool, ToolResult
-    from sumospace.audit import AuditLogger
-    from sumospace.hooks import HookRegistry
-    from sumospace.loaders.github import GitHubLoader
-    from sumospace.loaders.youtube import YouTubeLoader
-    
-    print_pass_fail("Environment Setup", True)
-    summary_results.append(("Section 1: Environment Setup", True, "Gemini loaded, repo cloned."))
-except Exception as e:
-    print_pass_fail("Environment Setup", False, str(e))
-    summary_results.append(("Section 1: Environment Setup", False, str(e)))
+# print_section("Section 1 — Environment setup", 
+#               "Check GPU with nvidia-smi, fetch Kaggle Gemini Secret, "
+#               "install SumoSpace, clone the repo, and define imports.")
+#
+# try:
+#     print("1. Checking GPU:")
+#     subprocess.run("nvidia-smi", shell=True, check=False)
+#     
+#     print("\n1.5 Installing dependencies (nest_asyncio for Jupyter)...")
+#     subprocess.run("pip install nest_asyncio google-generativeai", shell=True, check=False)
+#     
+#     import nest_asyncio
+#     nest_asyncio.apply()
+#     
+#     print("\n2. Fetching GEMINI_STUDIO_API_KEY from Kaggle Secrets...")
+#     try:
+#         from kaggle_secrets import UserSecretsClient
+#         user_secrets = UserSecretsClient()
+#         gemini_api_key = user_secrets.get_secret("GEMINI_STUDIO_API_KEY")
+#         os.environ["GOOGLE_API_KEY"] = gemini_api_key
+#         print("Successfully loaded Gemini API key from secrets.")
+#     except Exception as e:
+#         print(f"Warning: Could not fetch Kaggle secret (are you running locally?): {e}")
+#     
+#     print("\n3. Cleaning up old installs and databases...")
+#     subprocess.run("pip uninstall -y sumospace", shell=True, check=False)
+#     repo_dir = "/kaggle/working/SumoSpace"
+#     if os.path.exists(repo_dir):
+#         import shutil
+#         shutil.rmtree(repo_dir, ignore_errors=True)
+#     if os.path.exists("/kaggle/working/.sumo_db"):
+#         import shutil
+#         shutil.rmtree("/kaggle/working/.sumo_db", ignore_errors=True)
+#         
+#     os.makedirs("/kaggle/working", exist_ok=True)
+#     print("\n4. Installing SumoSpace from cloned repository with Gemini support...")
+#     if os.path.exists(repo_dir) and os.path.isdir(os.path.join(repo_dir, ".git")):
+#         subprocess.run(f"cd {repo_dir} && git fetch --all && git reset --hard origin/main", shell=True, check=True)
+#     else:
+#         subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=True)
+#         
+#     subprocess.run("pip install -e /kaggle/working/SumoSpace[media,loaders,faiss,gemini]", shell=True, check=True)
+#
+#     import sys
+#     if "/kaggle/working/SumoSpace" not in sys.path:
+#         sys.path.insert(0, "/kaggle/working/SumoSpace")
+#         
+#     # Force Jupyter to drop cached modules from previous cell runs
+#     import sys
+#     for mod in list(sys.modules.keys()):
+#         if mod == "sumospace" or mod.startswith("sumospace."):
+#             del sys.modules[mod]
+#
+#     from sumospace import SumoKernel, SumoSettings
+#     from sumospace.tools import BaseTool, ToolResult
+#     from sumospace.audit import AuditLogger
+#     from sumospace.hooks import HookRegistry
+#     from sumospace.loaders.github import GitHubLoader
+#     from sumospace.loaders.youtube import YouTubeLoader
+#     
+#     print_pass_fail("Environment Setup", True)
+#     summary_results.append(("Section 1: Environment Setup", True, "Gemini loaded, repo cloned."))
+# except Exception as e:
+#     print_pass_fail("Environment Setup", False, str(e))
+from sumospace import SumoKernel, SumoSettings
+from sumospace.tools import BaseTool, ToolResult
+from sumospace.audit import AuditLogger
+from sumospace.hooks import HookRegistry
+from sumospace.loaders.github import GitHubLoader
+from sumospace.loaders.youtube import YouTubeLoader
+import nest_asyncio
+nest_asyncio.apply()
 
 
 # -----------------------------------------------------------------------------
@@ -122,12 +129,12 @@ async def section2():
     try:
         print("Available Presets:")
         presets = {
-            "for_chat":              SumoSettings.for_chat(provider="gemini", model="gemini-1.5-flash"),
-            "for_chat_with_context": SumoSettings.for_chat_with_context(provider="gemini", model="gemini-1.5-flash"),
-            "for_chat_stateless":    SumoSettings.for_chat_stateless(provider="gemini", model="gemini-1.5-flash"),
-            "for_coding":            SumoSettings.for_coding(provider="gemini", model="gemini-1.5-flash"),
-            "for_research":          SumoSettings.for_research(provider="gemini", model="gemini-1.5-flash"),
-            "for_review":            SumoSettings.for_review(provider="gemini", model="gemini-1.5-flash"),
+            "for_chat":              SumoSettings.for_chat(provider="gemini", model="gemini-3.1-flash-lite"),
+            "for_chat_with_context": SumoSettings.for_chat_with_context(provider="gemini", model="gemini-3.1-flash-lite"),
+            "for_chat_stateless":    SumoSettings.for_chat_stateless(provider="gemini", model="gemini-3.1-flash-lite"),
+            "for_coding":            SumoSettings.for_coding(provider="gemini", model="gemini-3.1-flash-lite"),
+            "for_research":          SumoSettings.for_research(provider="gemini", model="gemini-3.1-flash-lite"),
+            "for_review":            SumoSettings.for_review(provider="gemini", model="gemini-3.1-flash-lite"),
         }
         for name, preset in presets.items():
             print(f" - {name}")
@@ -140,7 +147,7 @@ async def section2():
         print("-" * 80)
         
         for mode in modes:
-            settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", committee_enabled=(mode!="disabled"), committee_mode=mode if mode!="disabled" else "full")
+            settings = SumoSettings(provider="gemini", model="gemini-3.1-flash-lite", vector_store="faiss", committee_enabled=(mode!="disabled"), committee_mode=mode if mode!="disabled" else "full")
             start = time.time()
             async with SumoKernel(settings=settings) as kernel:
                 try:
@@ -179,7 +186,7 @@ async def section3():
             print("Before editing:")
             print(file_path.read_text())
             
-            settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", workspace=tmpdir)
+            settings = SumoSettings(provider="gemini", model="gemini-3.1-flash-lite", vector_store="faiss", workspace=tmpdir)
             async with SumoKernel(settings=settings) as kernel:
                 trace = await kernel.run("Add docstrings to all functions in math_ops.py")
                 session_id = trace.session_id
@@ -233,7 +240,7 @@ async def section4():
             print("SumoSpace source not found. Using current directory.")
             ws = "."
             
-        settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=False)
+        settings = SumoSettings(provider="gemini", model="gemini-3.1-flash-lite", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=False)
         
         async with SumoKernel(settings=settings) as kernel:
             print("Ingesting codebase...")
@@ -244,7 +251,7 @@ async def section4():
             
         print("\nEnabling Multi-Query RAG...")
         # Create a new kernel with updated settings to properly reconfigure RAG
-        settings_multi = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True)
+        settings_multi = SumoSettings(provider="gemini", model="gemini-3.1-flash-lite", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True)
         async with SumoKernel(settings=settings_multi) as kernel_multi:
             trace2 = await kernel_multi.run(f"Answer the following question based on the codebase: {q1}")
             print(f"Answer (Multi-Query): {trace2.final_answer}")
@@ -340,7 +347,7 @@ async def section6():
     hooks.register("on_kernel_shutdown", h_shutdown)
     
     try:
-        settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss")
+        settings = SumoSettings(provider="gemini", model="gemini-3.1-flash-lite", vector_store="faiss")
         async with SumoKernel(settings=settings, hooks=hooks) as kernel:
             await kernel.run("Calculate 5 + 5 using python")
             
@@ -391,7 +398,7 @@ async def section7():
         print(f"Direct test reverse_string('SumoSpace'): {(await tool1.run(text='SumoSpace')).output}")
         print(f"Direct test count_words('Hello world from Kaggle'): {(await tool2.run(text='Hello world from Kaggle')).output}")
 
-        settings = SumoSettings(provider="gemini", model="gemini-1.5-flash", vector_store="faiss")
+        settings = SumoSettings(provider="gemini", model="gemini-3.1-flash-lite", vector_store="faiss")
         async with SumoKernel(settings=settings) as kernel:
             kernel.tools.register(tool1)
             kernel.tools.register(tool2)
@@ -425,7 +432,7 @@ async def section8():
     global test_session_id
     try:
         # Create a new AuditLogger scoped to the workspace used earlier or current dir
-        logger = AuditLogger(SumoSettings(provider="gemini", model="gemini-1.5-flash"))
+        logger = AuditLogger(SumoSettings(provider="gemini", model="gemini-3.1-flash-lite"))
         
         print("Audit Stats:")
         stats = logger.stats()
@@ -437,7 +444,7 @@ async def section8():
             print(f" - {s.get('session_id')} | Duration: {s.get('duration_ms')}ms | Success: {s.get('success')}")
             
         print("Generating a quick session to test export...")
-        async with SumoKernel(settings=SumoSettings(provider="gemini", model="gemini-1.5-flash")) as kernel:
+        async with SumoKernel(settings=SumoSettings(provider="gemini", model="gemini-3.1-flash-lite")) as kernel:
             trace = await kernel.run("Say 'hello audit'")
             target_session = trace.session_id
             
@@ -473,7 +480,7 @@ try:
     cmd = [
         "python", "-m", "sumospace.benchmarks.standalone",
         "--provider", "gemini",
-        "--model", "gemini-1.5-flash",
+        "--model", "gemini-3.1-flash-lite",
         "--modes", "disabled,plan_only,critique_only,full"
     ]
     

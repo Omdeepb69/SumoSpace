@@ -498,6 +498,20 @@ class Committee:
         self._custom_agents = custom_agents or []
         self.require_consensus = require_consensus
 
+    def _is_stagnant(self, old_plan: ExecutionPlan | None, new_plan: ExecutionPlan | None) -> bool:
+        if not old_plan or not new_plan:
+            return False
+            
+        def _hash_plan(p: ExecutionPlan) -> str:
+            import hashlib
+            import json
+            seq = []
+            for step in p.steps:
+                seq.append([step.tool, sorted(step.parameters.keys())])
+            return hashlib.md5(json.dumps(seq).encode()).hexdigest()
+            
+        return _hash_plan(old_plan) == _hash_plan(new_plan)
+
     async def deliberate(
         self,
         task: str,
@@ -508,61 +522,105 @@ class Committee:
         Full deliberation cycle: plan → critique → resolve.
         Returns a CommitteeVerdict with approved plan or rejection reason.
         """
-        # Phase 1: Planner proposes
-        plan, planner_raw = await self._planner.plan(task, context)
+        MAX_PLAN_RETRIES = 2
+        last_plan = None
+        last_rejection_reason = ""
+        last_blockers = []
 
-        if not self.require_consensus:
-            plan.approved = True
-            return CommitteeVerdict(
-                approved=True,
-                plan=plan,
-                planner_output=planner_raw,
+        for attempt in range(MAX_PLAN_RETRIES):
+            retry_context = context
+            if attempt > 0:
+                retry_context += f"\n\n[PREVIOUS PLAN REJECTED]\nReason: {last_rejection_reason}\nBlockers: {', '.join(last_blockers)}\nPlease address these blockers in your new plan."
+
+            # Phase 1: Planner proposes
+            plan, planner_raw = await self._planner.plan(task, retry_context)
+
+            # Stagnation Detection
+            if attempt > 0 and self._is_stagnant(last_plan, plan):
+                return CommitteeVerdict(
+                    approved=False,
+                    plan=plan,
+                    planner_output=planner_raw,
+                    rejection_reason="Stagnation detected: Model proposed the exact same tool sequence again. Aborting."
+                )
+            last_plan = plan
+
+            if not self.require_consensus:
+                plan.approved = True
+                return CommitteeVerdict(
+                    approved=True,
+                    plan=plan,
+                    planner_output=planner_raw,
+                )
+
+            if mode == "plan_only":
+                return CommitteeVerdict(
+                    approved=True,
+                    plan=plan,
+                    planner_output=planner_raw,
+                    rejection_reason="plan_only mode — critique skipped",
+                )
+
+            # Phase 2: Critic reviews
+            verdict, reason, risks, blockers, critic_raw = await self._critic.critique(plan, task)
+
+            if verdict == "reject" and blockers:
+                if attempt < MAX_PLAN_RETRIES - 1:
+                    last_rejection_reason = reason
+                    last_blockers = blockers
+                    continue  # Retry loop
+                else:
+                    return CommitteeVerdict(
+                        approved=False,
+                        plan=plan,
+                        planner_output=planner_raw,
+                        critic_output=critic_raw,
+                        rejection_reason=f"Critic rejected (Attempt {attempt+1}): {reason}. Blockers: {'; '.join(blockers)}",
+                    )
+                
+            if mode == "critique_only":
+                return CommitteeVerdict(
+                    approved=True,
+                    plan=plan,
+                    planner_output=planner_raw,
+                    critic_output=critic_raw,
+                    rejection_reason="critique_only mode — resolver skipped",
+                )
+
+            # Phase 3: Resolver synthesises
+            final_plan, approved, notes, resolver_raw = await self._resolver.resolve(
+                task=task,
+                original_plan=plan,
+                critic_verdict=verdict,
+                critic_reason=reason,
+                risks=risks,
+                blockers=blockers,
             )
 
-        if mode == "plan_only":
+            if not approved:
+                if attempt < MAX_PLAN_RETRIES - 1:
+                    last_rejection_reason = notes
+                    last_blockers = blockers
+                    continue  # Retry loop
+                else:
+                    return CommitteeVerdict(
+                        approved=False,
+                        plan=final_plan,
+                        planner_output=planner_raw,
+                        critic_output=critic_raw,
+                        resolver_output=resolver_raw,
+                        rejection_reason=notes,
+                    )
+
+            # Success!
             return CommitteeVerdict(
                 approved=True,
-                plan=plan,
-                planner_output=planner_raw,
-                rejection_reason="plan_only mode — critique skipped",
-            )
-
-        # Phase 2: Critic reviews
-        verdict, reason, risks, blockers, critic_raw = await self._critic.critique(plan, task)
-
-        if verdict == "reject" and blockers:
-            return CommitteeVerdict(
-                approved=False,
-                plan=plan,
+                plan=final_plan,
                 planner_output=planner_raw,
                 critic_output=critic_raw,
-                rejection_reason=f"Critic rejected: {reason}. Blockers: {'; '.join(blockers)}",
-            )
-            
-        if mode == "critique_only":
-            return CommitteeVerdict(
-                approved=True,
-                plan=plan,
-                planner_output=planner_raw,
-                critic_output=critic_raw,
-                rejection_reason="critique_only mode — resolver skipped",
+                resolver_output=resolver_raw,
+                rejection_reason="",
             )
 
-        # Phase 3: Resolver synthesises
-        final_plan, approved, notes, resolver_raw = await self._resolver.resolve(
-            task=task,
-            original_plan=plan,
-            critic_verdict=verdict,
-            critic_reason=reason,
-            risks=risks,
-            blockers=blockers,
-        )
-
-        return CommitteeVerdict(
-            approved=approved,
-            plan=final_plan,
-            planner_output=planner_raw,
-            critic_output=critic_raw,
-            resolver_output=resolver_raw,
-            rejection_reason="" if approved else notes,
-        )
+        # Fallback (should not be reached)
+        return CommitteeVerdict(approved=False, plan=None, rejection_reason="Retry loop failed.")

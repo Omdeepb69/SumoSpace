@@ -39,6 +39,8 @@ class ToolResult:
     error: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     duration_ms: float = 0.0
+    recoverable: bool = False
+    retry_hint: str = ""
 
 
 # ─── Base Tool ───────────────────────────────────────────────────────────────
@@ -118,7 +120,7 @@ class ReadFileTool(BaseTool):
 class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write text to a new file, or completely overwrite an existing file. Parameters: path (string), content (string)."
-    param_aliases = {"file_path": "path", "filepath": "path", "filename": "path", "file": "path", "text": "content", "data": "content", "input": "content", "tool_input": "content"}
+    param_aliases = {"file_path": "path", "filepath": "path", "filename": "path", "file": "path", "text": "content", "data": "content", "input": "content", "tool_input": "content", "body": "content", "code": "content", "new_content": "content"}
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -129,7 +131,35 @@ class WriteFileTool(BaseTool):
         import time
         start = time.monotonic()
         try:
+            # Strip accidental URL prefixes that LLMs sometimes prepend when using
+            # a 'url' field as a content placeholder (e.g. "https://example.com/...\n<actual code>")
+            if isinstance(content, str) and content.startswith(("http://", "https://")) and "\n" in content:
+                content = content[content.index("\n"):].lstrip("\n")
+
+            # Reject content that looks like just a filename/path rather than real file text
+            if isinstance(content, str) and len(content) < 50 and "\n" not in content:
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error=f"Content looks like a filename or placeholder ('{content[:40]}').",
+                    recoverable=True,
+                    retry_hint="The 'content' parameter must be the COMPLETE text of the file. Do not provide a filename or summary."
+                )
+
             p = Path(self._workspace) / path
+
+            # Execution-Layer Robustness: AST Edit Verification for Python files
+            if p.suffix == ".py":
+                import ast
+                try:
+                    ast.parse(content)
+                except SyntaxError as syntax_err:
+                    return ToolResult(
+                        tool=self.name, success=False, output="",
+                        error=f"AST SyntaxError in the written content (Line {syntax_err.lineno}): {syntax_err.msg}.",
+                        recoverable=True,
+                        retry_hint=f"Syntax error at line {syntax_err.lineno}. Check for truncated output, mismatched brackets, or bad indentation."
+                    )
+
             # Snapshot before mutation
             if self._snapshot_manager and self._run_id:
                 self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
@@ -146,6 +176,7 @@ class WriteFileTool(BaseTool):
             )
         except Exception as e:
             return ToolResult(tool=self.name, success=False, output="", error=str(e))
+
 
 
 class ListDirectoryTool(BaseTool):
@@ -255,8 +286,10 @@ class ReplaceTextTool(BaseTool):
     description = "Replace an exact block of text in a file. Parameters: path (string), old_text (string), new_text (string)."
     param_aliases = {
         "file_path": "path", "filepath": "path", "filename": "path", "file": "path",
-        "old": "old_text", "original": "old_text", "original_text": "old_text", "find": "old_text", "target": "old_text", "source": "old_text",
-        "new": "new_text", "replacement": "new_text", "replacement_text": "new_text", "replace": "new_text"
+        "old": "old_text", "original": "old_text", "original_text": "old_text", "find": "old_text", "target": "old_text",
+        "search": "old_text", "search_text": "old_text", "pattern": "old_text", "before": "old_text", "from": "old_text",
+        "new": "new_text", "replacement": "new_text", "replacement_text": "new_text", "replace": "new_text",
+        "after": "new_text", "replace_with": "new_text", "to": "new_text", "query": "new_text"
     }
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
@@ -273,7 +306,12 @@ class ReplaceTextTool(BaseTool):
                 return ToolResult(tool=self.name, success=False, output="", error=f"File not found: {path}")
 
             if not old_text:
-                return ToolResult(tool=self.name, success=False, output="", error="old_text cannot be empty. Please provide the exact text you want to replace.")
+                return ToolResult(
+                    tool=self.name, success=False, output="", 
+                    error="old_text cannot be empty.",
+                    recoverable=True,
+                    retry_hint="Please provide the exact text you want to replace in the 'old_text' parameter."
+                )
 
             # Normalize line endings to prevent brittle LLM serialization failures
             content = p.read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -307,12 +345,16 @@ class ReplaceTextTool(BaseTool):
                 if matches_found == 0:
                     return ToolResult(
                         tool=self.name, success=False, output="",
-                        error="old_text not found in file (even ignoring whitespace/indentation). Ensure matching."
+                        error="old_text not found in file.",
+                        recoverable=True,
+                        retry_hint="Ensure old_text matches the file exactly. Read the file again if needed."
                     )
                 elif matches_found > 1:
                     return ToolResult(
                         tool=self.name, success=False, output="",
-                        error=f"old_text matched {matches_found} locations (ignoring whitespace). Please provide more context."
+                        error=f"old_text matched {matches_found} locations (ignoring whitespace).",
+                        recoverable=True,
+                        retry_hint="Please provide more surrounding context in old_text to uniquely identify the target."
                     )
                 
                 # Exactly 1 flexible match!
@@ -348,7 +390,9 @@ class ReplaceTextTool(BaseTool):
                 lines = [content[:m.start()].count('\n') + 1 for m in re.finditer(re.escape(search_text), content)]
                 return ToolResult(
                     tool=self.name, success=False, output="",
-                    error=f"old_text matched {matches} locations (lines {lines}). Please provide more surrounding context in old_text to uniquely identify the target."
+                    error=f"old_text matched {matches} locations (lines {lines}).",
+                    recoverable=True,
+                    retry_hint="Please provide more surrounding context in old_text to uniquely identify the target."
                 )
 
             # Snapshot before mutation
@@ -356,6 +400,19 @@ class ReplaceTextTool(BaseTool):
                 self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
 
             new_content = content.replace(search_text, replacement, 1)
+
+            # Execution-Layer Robustness: AST Edit Verification for Python files
+            if p.suffix == ".py":
+                import ast
+                try:
+                    ast.parse(new_content)
+                except SyntaxError as syntax_err:
+                    return ToolResult(
+                        tool=self.name, success=False, output="",
+                        error=f"AST SyntaxError in the resulting file after replacement (Line {syntax_err.lineno}): {syntax_err.msg}.",
+                        recoverable=True,
+                        retry_hint=f"Your replacement introduced a Python syntax error at line {syntax_err.lineno}. Check indentation or syntax."
+                    )
 
             # Atomic write
             with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tf:
@@ -437,6 +494,228 @@ class PatchFileTool(BaseTool):
                         os.unlink(fp)
                     except Exception:
                         pass
+
+
+# ─── AST-Aware Patching Tool ──────────────────────────────────────────────────
+
+class ReplaceFunctionTool(BaseTool):
+    """Symbol-aware function/method replacement using Python AST.
+    
+    Instead of brittle text matching, this tool parses the file's AST,
+    locates a function or method by name, and surgically replaces it.
+    """
+    name = "replace_function"
+    description = (
+        "Replace an entire Python function or method body using AST-aware targeting. "
+        "Parameters: path (string), function_name (string — use 'ClassName.method' for methods), "
+        "new_code (string — the complete new function/method definition including 'def ...:')."
+    )
+    param_aliases = {
+        "file_path": "path", "filepath": "path", "filename": "path", "file": "path",
+        "func": "function_name", "name": "function_name", "symbol": "function_name",
+        "target": "function_name", "method": "function_name",
+        "code": "new_code", "new_body": "new_code", "replacement": "new_code",
+        "body": "new_code", "content": "new_code",
+    }
+
+    def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
+        self._workspace = workspace
+        self._snapshot_manager = snapshot_manager
+        self._run_id = run_id
+
+    def _find_symbol(self, tree: 'ast.Module', function_name: str, source_lines: list[str]):
+        """Locate a function/method node in the AST.
+        
+        Supports:
+          - 'my_func' — top-level function
+          - 'MyClass.my_method' — method inside a class
+        
+        Returns (node, start_line_0idx, end_line_0idx) or (None, None, None).
+        """
+        import ast
+        
+        parts = function_name.split(".", 1)
+        
+        if len(parts) == 2:
+            # Class.method
+            class_name, method_name = parts
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, ast.ClassDef) and node.name == class_name:
+                    for child in ast.iter_child_nodes(node):
+                        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and child.name == method_name:
+                            return self._get_symbol_range(child, source_lines)
+            return None, None, None
+        else:
+            # Top-level function or class
+            target_name = parts[0]
+            for node in ast.iter_child_nodes(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == target_name:
+                    return self._get_symbol_range(node, source_lines)
+            return None, None, None
+
+    def _get_symbol_range(self, node, source_lines: list[str]):
+        """Get the full range of a symbol including its decorators and leading whitespace."""
+        import ast
+        
+        # Start from the first decorator, or the def/class line
+        if node.decorator_list:
+            start_line = min(d.lineno for d in node.decorator_list) - 1  # 0-indexed
+        else:
+            start_line = node.lineno - 1  # 0-indexed
+        
+        end_line = node.end_lineno - 1  # 0-indexed, inclusive
+        
+        return node, start_line, end_line
+
+    async def run(self, path: str, function_name: str, new_code: str, **_) -> ToolResult:
+        import ast
+        import time
+        import re
+        start = time.monotonic()
+        
+        try:
+            p = Path(self._workspace) / path
+            if not p.exists():
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error=f"File not found: {path}",
+                )
+            
+            if p.suffix != ".py":
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error=f"replace_function only supports Python files (.py), got: {p.suffix}",
+                    recoverable=True,
+                    retry_hint="Use replace_text for non-Python files.",
+                )
+            
+            if not function_name:
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error="function_name cannot be empty.",
+                    recoverable=True,
+                    retry_hint="Provide the function name (e.g. 'login_user' or 'MyClass.my_method').",
+                )
+            
+            if not new_code or not new_code.strip():
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error="new_code cannot be empty.",
+                    recoverable=True,
+                    retry_hint="Provide the complete new function definition including 'def function_name(...):'.",
+                )
+
+            content = p.read_text(encoding="utf-8")
+            source_lines = content.splitlines(keepends=True)
+            
+            # Parse AST
+            try:
+                tree = ast.parse(content)
+            except SyntaxError as e:
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error=f"Cannot parse {path}: SyntaxError at line {e.lineno}: {e.msg}",
+                    recoverable=True,
+                    retry_hint="The file already has a syntax error. Fix it first with replace_text.",
+                )
+            
+            # Find the target symbol
+            node, start_idx, end_idx = self._find_symbol(tree, function_name, source_lines)
+            
+            if node is None:
+                # Provide helpful diagnostic
+                all_symbols = []
+                for n in ast.walk(tree):
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        all_symbols.append(n.name)
+                    elif isinstance(n, ast.ClassDef):
+                        all_symbols.append(n.name)
+                        for child in ast.iter_child_nodes(n):
+                            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                                all_symbols.append(f"{n.name}.{child.name}")
+                
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error=f"Symbol '{function_name}' not found in {path}.",
+                    recoverable=True,
+                    retry_hint=f"Available symbols: {', '.join(all_symbols[:20])}",
+                )
+            
+            # Determine indentation of the original symbol
+            original_first_line = source_lines[start_idx] if start_idx < len(source_lines) else ""
+            base_indent = re.match(r"^[ \t]*", original_first_line).group(0)
+            
+            # Normalize the new_code indentation to match the original
+            new_lines = new_code.splitlines(keepends=True)
+            if new_lines:
+                # Detect the indentation of the first non-empty line of new_code
+                first_nonempty = next((l for l in new_lines if l.strip()), "")
+                new_indent = re.match(r"^[ \t]*", first_nonempty).group(0)
+                
+                # Re-indent if necessary
+                if new_indent != base_indent:
+                    adjusted = []
+                    for line in new_lines:
+                        if line.strip():
+                            if line.startswith(new_indent):
+                                adjusted.append(base_indent + line[len(new_indent):])
+                            else:
+                                adjusted.append(base_indent + line.lstrip())
+                        else:
+                            adjusted.append(line)
+                    new_lines = adjusted
+                
+                # Ensure trailing newline
+                if new_lines and not new_lines[-1].endswith("\n"):
+                    new_lines[-1] += "\n"
+            
+            # Build the new file content
+            before = source_lines[:start_idx]
+            after = source_lines[end_idx + 1:]
+            new_content = "".join(before) + "".join(new_lines) + "".join(after)
+            
+            # AST-validate the result
+            try:
+                ast.parse(new_content)
+            except SyntaxError as syntax_err:
+                return ToolResult(
+                    tool=self.name, success=False, output="",
+                    error=f"Replacement would create SyntaxError at line {syntax_err.lineno}: {syntax_err.msg}.",
+                    recoverable=True,
+                    retry_hint=f"Your new_code has a syntax error. Check line {syntax_err.lineno}. Make sure you include the full 'def {function_name}(...):' signature.",
+                )
+            
+            # Snapshot before mutation
+            if self._snapshot_manager and self._run_id:
+                self._snapshot_manager.snapshot_file(self._run_id, str(p.resolve()))
+            
+            # Atomic write
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tf:
+                tf.write(new_content)
+                tmp_path = tf.name
+            shutil.move(tmp_path, str(p))
+            
+            # Record after-state
+            if self._snapshot_manager and self._run_id:
+                self._snapshot_manager.record_after(self._run_id, str(p.resolve()))
+            
+            lines_removed = end_idx - start_idx + 1
+            lines_added = len(new_lines)
+            
+            return ToolResult(
+                tool=self.name, success=True,
+                output=f"Replaced '{function_name}' in {path} (removed {lines_removed} lines, added {lines_added} lines)",
+                metadata={
+                    "path": path,
+                    "symbol": function_name,
+                    "original_range": f"L{start_idx+1}-L{end_idx+1}",
+                    "lines_removed": lines_removed,
+                    "lines_added": lines_added,
+                },
+                duration_ms=(time.monotonic() - start) * 1000,
+            )
+        except Exception as e:
+            return ToolResult(tool=self.name, success=False, output="", error=str(e))
 
 
 # ─── Shell Tool ───────────────────────────────────────────────────────────────
@@ -803,6 +1082,7 @@ class ToolRegistry:
         self.register(ListDirectoryTool(workspace=ws))
         self.register(SearchFilesTool(workspace=ws))
         self.register(ReplaceTextTool(workspace=ws, snapshot_manager=sm))
+        self.register(ReplaceFunctionTool(workspace=ws, snapshot_manager=sm))
         self.register(PatchFileTool(workspace=ws, snapshot_manager=sm))
         self.register(ShellTool(workspace=ws))
         self.register(WebSearchTool())

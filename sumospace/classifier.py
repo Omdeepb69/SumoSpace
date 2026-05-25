@@ -83,6 +83,7 @@ class ClassificationResult:
     needs_retrieval: bool
     reasoning: str = ""
     entities: dict[str, Any] = field(default_factory=dict)
+    routing_trace: dict[str, Any] = field(default_factory=dict)
 
 
 # ─── Stage 1: Rule-Based Classifier ──────────────────────────────────────────
@@ -131,9 +132,9 @@ class RuleBasedClassifier:
         # Run command
         (re.compile(r"\b(run|execute|bash|shell|terminal|cmd|command)\b", re.I),
          Intent.RUN_COMMAND, 0.82),
-        # Web search
+        # Web search (Lowered confidence to act as weak prior)
         (re.compile(r"\b(search|google|look up|find online|latest|current|news|today)\b", re.I),
-         Intent.WEB_SEARCH, 0.80),
+         Intent.WEB_SEARCH, 0.40),
         # Document QA
         (re.compile(r"\b(from the doc|according to|in the document|in the file|based on)\b", re.I),
          Intent.DOCUMENT_QA, 0.85),
@@ -154,24 +155,26 @@ class RuleBasedClassifier:
          Intent.WRITE_FILE, 0.78),
     ]
 
-    def classify(self, text: str) -> ClassificationResult | None:
+    def classify(self, text: str) -> dict[Intent, float]:
+        scores = {}
         for tier in [self.TIER1_RULES, self.TIER2_RULES, self.TIER3_RULES]:
-            best = max(
-                ((p, i, c) for p, i, c in tier if p.search(text)),
-                key=lambda x: x[2],
-                default=None
-            )
-            if best:
-                pattern, intent, confidence = best
-                return ClassificationResult(
-                    intent=intent,
-                    confidence=confidence,
-                    needs_execution=intent in EXECUTION_INTENTS,
-                    needs_web=intent in WEB_INTENTS,
-                    needs_retrieval=intent in RETRIEVAL_INTENTS,
-                    reasoning=f"rule-tier-match: '{pattern.pattern}' ({confidence:.2f})",
-                )
-        return None
+            for pattern, intent, confidence in tier:
+                if pattern.search(text):
+                    scores[intent] = max(scores.get(intent, 0.0), confidence)
+        
+        # Apply dynamic modifiers
+        if Intent.WEB_SEARCH in scores:
+            coding_terms = re.compile(r"\b(function|class|refactor|async|docstring|patch|file|import|pytest|fix|bug|lint|ast|module)\b", re.I)
+            if coding_terms.search(text):
+                scores[Intent.WEB_SEARCH] = max(0.05, scores[Intent.WEB_SEARCH] - 0.8)
+                
+            web_terms = re.compile(r"\b(latest news|current|search online|lookup|google)\b", re.I)
+            if web_terms.search(text):
+                # Only apply web bonus if we didn't just nuke it for being coding-related
+                if not coding_terms.search(text):
+                    scores[Intent.WEB_SEARCH] = min(0.95, scores[Intent.WEB_SEARCH] + 0.3)
+
+        return scores
 
 
 # ─── Stage 2: Zero-Shot NLI Classifier ───────────────────────────────────────
@@ -222,10 +225,10 @@ class ZeroShotLocalClassifier:
                 return False
         return True
 
-    async def classify(self, text: str) -> ClassificationResult | None:
+    async def classify(self, text: str) -> dict[Intent, float]:
         import asyncio
         if not self._ensure_model():
-            return None  # Torch/ST unavailable — skip to Stage 3
+            return {}
 
         labels = list(self.INTENT_LABELS.keys())
         pairs = [(text, label) for label in labels]
@@ -236,27 +239,13 @@ class ZeroShotLocalClassifier:
             lambda: self._model.predict(pairs, apply_softmax=True),
         )
 
-        # scores: (n_labels, 3) — [contradiction, neutral, entailment]
-        entailment_scores = [
-            float(s[2]) if hasattr(s, "__len__") else float(s)
-            for s in scores
-        ]
-        best_idx = max(range(len(entailment_scores)), key=lambda i: entailment_scores[i])
-        best_score = entailment_scores[best_idx]
-        best_label = labels[best_idx]
+        scores_dict = {}
+        for idx, s in enumerate(scores):
+            score = float(s[2]) if hasattr(s, "__len__") else float(s)
+            intent = self.INTENT_LABELS[labels[idx]]
+            scores_dict[intent] = max(scores_dict.get(intent, 0.0), score)
 
-        if best_score < 0.5:
-            return None  # Not confident enough — escalate to Stage 3
-
-        intent = self.INTENT_LABELS[best_label]
-        return ClassificationResult(
-            intent=intent,
-            confidence=best_score,
-            needs_execution=intent in EXECUTION_INTENTS,
-            needs_web=intent in WEB_INTENTS,
-            needs_retrieval=intent in RETRIEVAL_INTENTS,
-            reasoning=f"zero-shot NLI: '{best_label}' ({best_score:.2f})",
-        )
+        return scores_dict
 
 
 # ─── Stage 3: LLM Classifier ─────────────────────────────────────────────────
@@ -388,22 +377,49 @@ class SumoClassifier:
         context: dict | None = None,
     ) -> ClassificationResult:
         context = context or {}
+        routing_trace = {"stage1_regex": {}, "stage2_nli": {}}
 
-        # Stage 1: Rule engine (~0ms)
-        result = self._rule.classify(text)
-        if result and result.confidence >= self._threshold:
-            result.entities = self._extractor.extract(text)
-            return result
+        # Stage 1: Rule engine
+        rule_scores = self._rule.classify(text)
+        routing_trace["stage1_regex"] = {k.value: v for k, v in rule_scores.items()}
 
-        # Stage 2: Local NLI zero-shot (~50-200ms, no LLM call)
-        result = await self._zeroshot.classify(text)
-        if result and result.confidence >= 0.65:
-            result.entities = self._extractor.extract(text)
-            return result
+        # Stage 2: Local NLI zero-shot
+        nli_scores = await self._zeroshot.classify(text)
+        routing_trace["stage2_nli"] = {k.value: v for k, v in nli_scores.items()}
 
-        # Stage 3: Full LLM call (only for truly ambiguous inputs)
+        # Merge scores (NLI takes precedence, but rules boost it)
+        merged_scores = {}
+        for intent in Intent:
+            nli_s = nli_scores.get(intent, 0.0)
+            rule_s = rule_scores.get(intent, 0.0)
+            merged_scores[intent] = min(1.0, max(nli_s, rule_s) + (0.1 * min(nli_s, rule_s)))
+            
+        routing_trace["merged_scores"] = {k.value: v for k, v in merged_scores.items()}
+
+        # Find best intent
+        if merged_scores:
+            best_intent = max(merged_scores.keys(), key=lambda i: merged_scores[i])
+            best_score = merged_scores[best_intent]
+            
+            if best_score >= self._threshold:
+                routing_trace["final_intent"] = best_intent.value
+                return ClassificationResult(
+                    intent=best_intent,
+                    confidence=best_score,
+                    needs_execution=best_intent in EXECUTION_INTENTS,
+                    needs_web=best_intent in WEB_INTENTS,
+                    needs_retrieval=best_intent in RETRIEVAL_INTENTS,
+                    reasoning=f"merged heuristic score: {best_score:.2f}",
+                    entities=self._extractor.extract(text),
+                    routing_trace=routing_trace
+                )
+
+        # Stage 3: Full LLM call (fallback)
+        routing_trace["stage3_llm"] = "fallback_triggered"
         result = await self._llm.classify(text, context)
         result.entities = self._extractor.extract(text)
+        result.routing_trace = routing_trace
+        routing_trace["final_intent"] = result.intent.value
         return result
 
     def _extract_entities(self, text: str) -> dict:

@@ -126,6 +126,21 @@ class StepTrace:
     description: str
     result: ToolResult
     duration_ms: float
+    thought: str = ""
+    parameters: dict = field(default_factory=dict)
+
+from enum import Enum
+
+class FailureCategory(str, Enum):
+    ROUTING_FAILURE = "routing_failure"
+    PARSING_FAILURE = "parsing_failure"
+    INVALID_EDIT = "invalid_edit"
+    HALLUCINATED_TOOL = "hallucinated_tool"
+    CRITIC_DEADLOCK = "critic_deadlock"
+    CONTEXT_OVERFLOW = "context_overflow"
+    TIMEOUT = "timeout"
+    MALFORMED_PARAMS = "malformed_params"
+    UNKNOWN = "unknown"
 
 @dataclass
 class SynthesisChunk:
@@ -143,6 +158,7 @@ class ExecutionTrace:
     final_answer: str = ""
     success: bool = False
     error: str = ""
+    failure_category: FailureCategory | None = None
     duration_ms: float = 0.0
     rag_context: str = ""
 
@@ -604,6 +620,7 @@ class SumoKernel:
         except ConsensusFailedError as e:
             trace.error = str(e)
             trace.success = False
+            trace.failure_category = FailureCategory.CRITIC_DEADLOCK
             trace.final_answer = f"Task halted: {e}"
             if self.settings.verbose:
                 console.print(f"[red]✗ {e}[/red]")
@@ -611,6 +628,7 @@ class SumoKernel:
         except ExecutionHaltedError as e:
             trace.error = str(e)
             trace.success = False
+            trace.failure_category = FailureCategory.INVALID_EDIT
             trace.final_answer = f"Execution halted at critical step: {e}"
             if self.settings.verbose:
                 console.print(f"[red]✗ {e}[/red]")
@@ -618,6 +636,7 @@ class SumoKernel:
         except Exception as e:
             trace.error = str(e)
             trace.success = False
+            trace.failure_category = FailureCategory.UNKNOWN
             trace.final_answer = f"Unexpected error: {e}"
             if self.settings.verbose:
                 console.print_exception()
@@ -880,13 +899,24 @@ class SumoKernel:
             f"{tools_desc}\n\n"
             "WORKFLOW:\n"
             "1. Analyze the previous step's result and think about what to do next.\n"
-            "2. Fill in the 'thought' field explaining your reasoning.\n"
-            "3. Fill in the 'tool' field and 'parameters' object to call a tool.\n"
-            "4. When the task is FULLY COMPLETE, set 'tool' to 'done' and use parameters like {\"content\": \"summary of what was accomplished\"}.\n\n"
-            "RULES:\n"
-            "- ALWAYS read a file BEFORE trying to edit it.\n"
-            "- For replace_text, the old_text MUST be copied EXACTLY from the read_file output.\n"
-            "- Do ONE edit at a time. Do NOT try to batch multiple edits.\n"
+            "2. Respond ONLY with a single JSON object (no markdown, no prose outside the JSON).\n"
+            "3. JSON format: {\"thought\": \"...\", \"tool\": \"<tool_name>\", \"parameters\": {<key>: <value>, ...}}\n"
+            "4. When the task is FULLY COMPLETE, respond: {\"thought\": \"done\", \"tool\": \"done\", \"parameters\": {\"content\": \"summary\"}}\n\n"
+            "CRITICAL RULES FOR write_file:\n"
+            "- 'content' MUST be the COMPLETE text of the file — every single line, not a description.\n"
+            "- Copy the full file from read_file output, make your edits, and put the result in 'content'.\n"
+            "- NEVER put a filename, URL, or description in 'content'. Only actual file text.\n\n"
+            "CRITICAL RULES FOR replace_text:\n"
+            "- 'old_text' MUST be copied EXACTLY verbatim from the file (character-for-character).\n"
+            "- 'new_text' is the replacement.\n\n"
+            "CRITICAL RULES FOR replace_function (PREFERRED for Python):\n"
+            "- Use replace_function instead of replace_text when replacing an entire function or method.\n"
+            "- 'function_name' is the symbol name (e.g. 'login_user' or 'MyClass.my_method').\n"
+            "- 'new_code' MUST be the COMPLETE new function/method definition including 'def ...:' signature.\n"
+            "- The tool handles indentation automatically. You do NOT need to match original indentation.\n\n"
+            "OTHER RULES:\n"
+            "- ALWAYS read a file with read_file BEFORE trying to edit it.\n"
+            "- Do ONE edit at a time.\n"
         )
 
         # Conversation history for the ReAct loop
@@ -913,14 +943,13 @@ class SumoKernel:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": {"type": "string"},
-                        "content": {"type": "string"},
-                        "old_text": {"type": "string"},
-                        "new_text": {"type": "string"},
-                        "command": {"type": "string"},
-                        "query": {"type": "string"},
-                        "url": {"type": "string"},
-                        "pattern": {"type": "string"}
+                        "path": {"type": "string", "description": "File path for read_file, write_file, replace_text, list_directory."},
+                        "content": {"type": "string", "description": "COMPLETE file text for write_file. Must be the full file content with all lines and newlines — NOT a filename or URL."},
+                        "old_text": {"type": "string", "description": "Exact verbatim text to find in a file for replace_text. Copy it character-for-character from read_file output."},
+                        "new_text": {"type": "string", "description": "Replacement text for replace_text."},
+                        "command": {"type": "string", "description": "Shell command string for run_command."},
+                        "query": {"type": "string", "description": "Search query string for web_search or search_files."},
+                        "pattern": {"type": "string", "description": "Regex pattern for search_files."}
                     }
                 }
             },
@@ -935,12 +964,13 @@ class SumoKernel:
                 console.print(f"  [cyan][ReAct {iteration+1}/{max_steps}][/cyan] Thinking...")
 
             try:
-                raw = await self._provider.complete_structured(
+                # Use free-form complete (not structured) so that large content
+                # strings (e.g. full file rewrites) are never dropped by schema enforcement.
+                raw = await self._provider.complete(
                     user=conversation,
                     system=system,
-                    schema=react_schema,
                     temperature=0.1,
-                    max_tokens=2048,
+                    max_tokens=4096,
                 )
             except Exception as e:
                 if self.settings.verbose:
@@ -994,6 +1024,8 @@ class SumoKernel:
                 description=f"ReAct step: {tool_name}",
                 result=result,
                 duration_ms=step_ms,
+                thought=thought,
+                parameters=parameters,
             )
             trace.step_traces.append(step_trace)
 
@@ -1008,10 +1040,13 @@ class SumoKernel:
                     console.print(f"    [green]✓[/green] {preview}{'...' if result.output and len(result.output) > 120 else ''}")
                 await self.hooks.trigger("on_step_complete", step_trace)
             else:
-                messages.append(
-                    f"TOOL RESULT ({tool_name}): FAILED\nError: {result.error}\n"
-                    "Fix the error and try again with corrected parameters."
-                )
+                error_msg = f"TOOL RESULT ({tool_name}): FAILED\nError: {result.error}"
+                if getattr(result, "recoverable", False) and getattr(result, "retry_hint", ""):
+                    error_msg += f"\nRECOVERY HINT: {result.retry_hint}"
+                else:
+                    error_msg += "\nFix the error and try again with corrected parameters."
+                
+                messages.append(error_msg)
                 if self.settings.verbose:
                     console.print(f"    [red]✗ {result.error}[/red]")
                 await self.hooks.trigger("on_step_failed", None, result.error)

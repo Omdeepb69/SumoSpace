@@ -90,3 +90,13 @@ logs/
 
 # ── Snapshots (runtime generated) ────────────────────────────────────────────
 .sumo_db/snapshots/
+
+# ── Scratch / Sandbox files ──────────────────────────────────────────────────
+scratch/
+fibonacci.py
+local_tester.py
+test_gemini.py
+test_new_sdk.py
+test_planner.py
+test_agents.py
+sumospace_kaggle_gemini_api_tester.py
