@@ -1151,6 +1151,7 @@ class ToolRegistry:
         self._tools: dict[str, BaseTool] = {}
         self._workspace = workspace
         self._snapshot_manager = snapshot_manager
+        self._run_id = None
         self._register_defaults()
 
     def _discover_plugins(self):
