@@ -534,8 +534,9 @@ class SumoKernel:
                 memory_str=self._memory.context_string(5) if self.settings.memory_enabled and self._memory.recent(1) else ""
             )
 
-            # Direct Inference Bypass
-            if not self.settings.committee_enabled:
+            # Direct Inference Bypass — only used when NOT in ReAct mode.
+            # In ReAct mode, the agent must use tools even without a committee.
+            if not self.settings.committee_enabled and self.settings.execution_mode != "react":
                 if self.settings.verbose:
                     console.print("[dim]Committee disabled — direct inference[/dim]")
                 prompt = f"{task}\n\nContext:\n{rag_context}" if rag_context else task
@@ -556,6 +557,36 @@ class SumoKernel:
                     await self._memory.add("user", task)
                     await self._memory.add("assistant", trace.final_answer)
                 
+                trace.duration_ms = (time.monotonic() - start) * 1000
+                if self._audit_logger:
+                    self._audit_logger.log(trace, verdict=None)
+                await self.hooks.trigger("on_task_complete", trace)
+                return trace
+
+            # ReAct without committee: execute autonomously with no pre-built plan.
+            if not self.settings.committee_enabled:
+                if self.settings.verbose:
+                    console.print("[dim]Committee disabled — ReAct autonomous execution[/dim]")
+                from sumospace.schemas import ExecutionPlan as _EP
+                empty_plan = _EP(steps=[], goal=task, estimated_duration_s=0.0, reasoning="Autonomous execution")
+                if self.settings.dry_run or not self.settings.execution_enabled:
+                    trace.final_answer = (
+                        f"[{'DRY RUN' if self.settings.dry_run else 'EXECUTION DISABLED'}] "
+                        f"Would execute autonomously: {task}"
+                    )
+                    trace.success = True
+                else:
+                    await self._execute_react(task, empty_plan, trace, full_context)
+                if not trace.final_answer:
+                    answer_parts = []
+                    async for chunk in self._synthesise(task, trace, full_context):
+                        answer_parts.append(chunk)
+                    trace.final_answer = "".join(answer_parts)
+                if self.settings.memory_enabled:
+                    await self._memory.add("user", task)
+                    await self._memory.add("assistant", trace.final_answer)
+                trace.success = True
+                trace.plan = None
                 trace.duration_ms = (time.monotonic() - start) * 1000
                 if self._audit_logger:
                     self._audit_logger.log(trace, verdict=None)
@@ -897,7 +928,7 @@ class SumoKernel:
         system = (
             "You are an autonomous coding agent executing a task step by step.\n"
             "You have access to these tools:\n"
-            f"{tools_desc}\n\n"
+            "{tools_desc}\n\n"
             "WORKFLOW:\n"
             "1. Analyze the previous step's result and think about what to do next.\n"
             "2. Respond ONLY with a single JSON object (no markdown, no prose outside the JSON).\n"
@@ -922,7 +953,7 @@ class SumoKernel:
 
         from sumospace.context import ContextManager, StepRecord
         
-        ctx = ContextManager(workspace_root=self.settings.workspace_dir)
+        ctx = ContextManager(workspace_root=self.settings.workspace)
 
         max_steps = self.settings.react_max_steps
         step_num = 0

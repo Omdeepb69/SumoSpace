@@ -24,7 +24,7 @@ async def test_hook_firing_order(tmp_path):
     @hooks.on("on_task_complete")
     async def h4(trace): fired.append("task_complete")
 
-    settings = SumoSettings(workspace=str(tmp_path), verbose=False)
+    settings = SumoSettings(workspace=str(tmp_path), verbose=False, execution_mode="plan")
     with patch("sumospace.kernel.ProviderRouter") as MockRouter, \
          patch("sumospace.rag.RAGPipeline") as MockRAG, \
          patch("sumospace.classifier.SumoClassifier") as MockClassifier:
@@ -43,8 +43,8 @@ async def test_hook_firing_order(tmp_path):
             ))
         
             from sumospace.committee import ExecutionStep
-            mock_plan = ExecutionPlan(task="test", steps=[
-                ExecutionStep(1, "shell", "test", {"command": "echo 1"})
+            mock_plan = ExecutionPlan(task="test", reasoning="mock", steps=[
+                ExecutionStep(step_number=1, tool="shell", description="test", parameters={"command": "echo 1"})
             ])
             kernel._committee.deliberate = AsyncMock(return_value=CommitteeVerdict(
                 approved=True, plan=mock_plan, planner_output="mock",

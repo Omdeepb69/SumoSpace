@@ -184,8 +184,15 @@ class WriteFileTool(BaseTool):
             if isinstance(content, str) and content.startswith(("http://", "https://")) and "\n" in content:
                 content = content[content.index("\n"):].lstrip("\n")
 
-            # Reject content that looks like just a filename/path rather than real file text
-            if isinstance(content, str) and len(content) < 50 and "\n" not in content:
+            # Reject content that looks like just a filename/path rather than real file text.
+            # Only flag if it actually resembles a path, URL, or meta-placeholder.
+            _PLACEHOLDER_SIGNALS = ("/", "\\", "://", "<file", "<path", "<content", "...", "see above", "[file")
+            if (
+                isinstance(content, str)
+                and len(content) < 80
+                and "\n" not in content
+                and any(sig in content.lower() for sig in _PLACEHOLDER_SIGNALS)
+            ):
                 return ToolResult(
                     tool=self.name, success=False, output="",
                     error=f"Content looks like a filename or placeholder ('{content[:40]}').",

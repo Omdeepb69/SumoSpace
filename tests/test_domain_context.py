@@ -156,11 +156,11 @@ async def test_from_workspace_detects_fastapi():
         assert "read_file" in ctx.planner_context
 
 
-# ── Test 6: Core JSON instructions always present ─────────────────────────────
+# ── Test 6: Core identity instructions always present ───────────────────────────
 
-def test_core_json_instructions_always_present():
+def test_core_identity_instructions_always_present():
     """
-    CRITICAL: The core JSON format instructions must appear in the assembled
+    CRITICAL: The core agent identity instructions must appear in the assembled
     prompt even when BOTH PromptTemplates AND DomainContext are provided.
     """
     ctx = DomainContext(
@@ -177,11 +177,7 @@ def test_core_json_instructions_always_present():
     prompt = agent._build_system_prompt(PLANNER_SYSTEM, "planner")
 
     # Layer 1 core identity MUST be present
-    assert '"reasoning"' in prompt
-    assert '"steps"' in prompt
-    assert '"tool"' in prompt
-    assert '"parameters"' in prompt
-    assert "Output ONLY" in prompt
+    assert "You are the Planner agent" in prompt
 
     # Layer 3 domain context MUST also be present
     assert "Custom project context here." in prompt

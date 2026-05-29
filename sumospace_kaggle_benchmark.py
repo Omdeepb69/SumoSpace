@@ -341,7 +341,7 @@ async def section6():
     try:
         settings = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss")
         async with SumoKernel(settings=settings, hooks=hooks) as kernel:
-            await kernel.run("Calculate 5 + 5 using python")
+            await kernel.run("Write a python script to calculate 5 + 5")
             
         print("Hooks fired in order:")
         for i, event in enumerate(hook_events_fired):
@@ -395,7 +395,7 @@ async def section7():
             kernel.tools.register(tool1)
             kernel.tools.register(tool2)
             
-            trace = await kernel.run("Use the count_words tool to count the words in the string 'The quick brown fox'.")
+            trace = await kernel.run("Execute a command using the count_words tool to count the words in the string 'The quick brown fox'.")
             
             used_tools = [s.tool for s in getattr(trace, 'step_traces', [])]
             print(f"\nTrace final answer: {trace.final_answer}")

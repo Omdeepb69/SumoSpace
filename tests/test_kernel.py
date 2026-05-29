@@ -143,6 +143,7 @@ class TestKernelRun:
         cfg = fast_config(tmp_path, tmp_chroma)
         cfg.dry_run = False
         cfg.require_consensus = True
+        cfg.execution_mode = "plan"  # use linear plan runner, not ReAct
         kernel = await self._make_kernel(tmp_path, tmp_chroma, mock_provider, cfg=cfg)
         
         # Mock classifier to ensure execution is triggered
@@ -154,8 +155,8 @@ class TestKernelRun:
         
         # Mock committee to return a plan with steps
         from sumospace.committee import CommitteeVerdict, ExecutionPlan, ExecutionStep
-        mock_plan = ExecutionPlan(task="List files", steps=[
-            ExecutionStep(1, "shell", "list files", {"command": "ls"})
+        mock_plan = ExecutionPlan(task="List files", reasoning="mock", steps=[
+            ExecutionStep(step_number=1, tool="shell", description="list files", parameters={"command": "ls"})
         ])
         kernel._committee.deliberate = AsyncMock(return_value=CommitteeVerdict(
             approved=True, plan=mock_plan, planner_output="mock",

@@ -39,7 +39,10 @@ async def test_concurrency_isolation(tmp_path):
         MockRouter.return_value.complete = AsyncMock(return_value=json.dumps({
             "reasoning": "test",
             "estimated_duration_s": 1,
-            "steps": [{"tool": "shell", "description": "ls", "parameters": {"command": "ls"}}]
+            "steps": [{"tool": "shell", "description": "ls", "parameters": {"command": "ls"}}],
+            "thought": "done",
+            "tool": "done",
+            "parameters": {"content": "finished"}
         }))
         MockRouter.return_value.stream = AsyncMock()
         
@@ -104,7 +107,10 @@ async def test_concurrency_shared_safety(tmp_path):
         MockRouter.return_value.complete = AsyncMock(return_value=json.dumps({
             "reasoning": "test",
             "estimated_duration_s": 1,
-            "steps": [{"tool": "shell", "description": "ls", "parameters": {"command": "ls"}}]
+            "steps": [{"tool": "shell", "description": "ls", "parameters": {"command": "ls"}}],
+            "thought": "done",
+            "tool": "done",
+            "parameters": {"content": "finished"}
         }))
         MockRouter.return_value.stream = AsyncMock()
         

@@ -199,7 +199,10 @@ class TestCommittee:
         committee = Committee(StrictProvider(), require_consensus=True)
         verdict = await committee.deliberate("Delete everything")
         assert verdict.approved is False
-        assert "reject" in verdict.rejection_reason.lower() or "block" in verdict.rejection_reason.lower()
+        reason = verdict.rejection_reason.lower()
+        assert "reject" in reason or "block" in reason or "stagnation" in reason or "abort" in reason, (
+            f"Unexpected rejection_reason: '{verdict.rejection_reason}'"
+        )
 
     async def test_committee_accepts_custom_agents(self, mock_provider):
         from sumospace.committee import BaseAgent

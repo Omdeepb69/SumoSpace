@@ -59,6 +59,8 @@ EXECUTION_INTENTS = {
     Intent.DEPENDENCY_MANAGEMENT,
     Intent.WRITE_TESTS,
     Intent.WRITE_FILE,
+    Intent.WRITE_CODE,
+    Intent.EXPLAIN_CODE,  # needs tool use to read files before explaining
 }
 
 RETRIEVAL_INTENTS = {
@@ -96,6 +98,18 @@ class RuleBasedClassifier:
     """
 
     TIER1_RULES: list[tuple[re.Pattern, Intent, float]] = [
+        # Docstrings — strongest signal: any mention of docstring/s in an imperative context
+        (re.compile(r"\b(add|write|insert|create|generate)\b.{0,40}\bdocstring", re.I),
+         Intent.REFACTOR, 0.95),
+        # Dead code removal
+        (re.compile(r"\b(remove|delete|clean|strip)\b.{0,30}\b(dead.?code|unused|deprecated|legacy)\b", re.I),
+         Intent.REFACTOR, 0.95),
+        # Sync-to-async conversion
+        (re.compile(r"\b(refactor|convert|change|rewrite)\b.{0,60}\b(async|asyncio|await)\b", re.I),
+         Intent.REFACTOR, 0.95),
+        # Explain codebase
+        (re.compile(r"\b(explain|describe)\b.{0,40}\b(codebase|project|repository|repo)\b", re.I),
+         Intent.EXPLAIN_CODE, 0.90),
         # Write tests
         (re.compile(r"\b(write|add|create|generate)\b.{0,20}\b(test|tests|unit test|pytest|spec)\b", re.I),
          Intent.WRITE_TESTS, 0.92),

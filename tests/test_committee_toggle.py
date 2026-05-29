@@ -56,6 +56,7 @@ def mock_kernel():
 @pytest.mark.asyncio
 async def test_committee_disabled_returns_direct_inference(mock_kernel):
     mock_kernel.settings.committee_enabled = False
+    mock_kernel.settings.execution_mode = "plan"
     
     trace = await mock_kernel.run("Hello world")
     
@@ -72,6 +73,7 @@ async def test_committee_disabled_returns_direct_inference(mock_kernel):
 @pytest.mark.asyncio
 async def test_committee_disabled_still_fires_hooks(mock_kernel):
     mock_kernel.settings.committee_enabled = False
+    mock_kernel.settings.execution_mode = "plan"
     trace = await mock_kernel.run("Hello world")
     
     mock_kernel.hooks.trigger.assert_any_call("on_task_start", "Hello world", trace.session_id)
@@ -80,6 +82,7 @@ async def test_committee_disabled_still_fires_hooks(mock_kernel):
 @pytest.mark.asyncio
 async def test_committee_disabled_still_writes_audit_log(mock_kernel):
     mock_kernel.settings.committee_enabled = False
+    mock_kernel.settings.execution_mode = "plan"
     trace = await mock_kernel.run("Hello world")
     
     mock_kernel._audit_logger.log.assert_called_once()
