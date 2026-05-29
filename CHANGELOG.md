@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-05-25
+
+### Added
+- **Deterministic Operational Snapshots**: Added `ContextManager` to automatically snapshot and track file diffs contextually.
+- **AST-Aware Editing**: Integrated `ReplaceClassTool` and `InsertMethodTool` for deterministic python modifications.
+- **Chunked File Reading**: Added `ReadChunkTool` for bounded context window control when reading massive files.
+- **Telemetry Enhancements**: Added comprehensive token limits (`react_max_tokens`), tracking of token usage, and reproducibility metadata to audit logs.
+- **Execution Ceilings**: Added strict execution iteration caps and robust token context overflow recovery.
+
+### Changed
+- **Tool Sandbox**: `ReplaceTextTool` now issues strong warnings for Python files, urging the use of AST tools.
+- **Tool Sandbox**: `ReadFileTool` now enforces a hard limit of 8,000 characters and returns hints for using `read_chunk`.
+- **Benchmark Stability**: Updated test suite and Kaggle benchmark to ensure zero-bias execution testing.
+
 ## [0.5.0] - 2026-05-02
 
 ### Added

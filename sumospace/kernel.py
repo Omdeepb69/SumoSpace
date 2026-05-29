@@ -128,6 +128,9 @@ class StepTrace:
     duration_ms: float
     thought: str = ""
     parameters: dict = field(default_factory=dict)
+    estimated_tokens: int = 0
+    provider_tokens: int = 0
+    snapshot_context: str = ""
 
 from enum import Enum
 
@@ -160,6 +163,9 @@ class ExecutionTrace:
     error: str = ""
     failure_category: FailureCategory | None = None
     duration_ms: float = 0.0
+    retries: int = 0
+    total_estimated_tokens: int = 0
+    total_provider_tokens: int = 0
     rag_context: str = ""
 
     @property
@@ -878,14 +884,9 @@ class SumoKernel:
             trace.success = True
             return
 
-        # Build tool descriptions for the ReAct prompt
-        tools_list = self._tools.list_tools()
-        import json
-        tools_desc = "\n".join([
-            f"- {t['name']}: {t['description']}\n  Parameters: {json.dumps(t['schema'].get('properties', {}))}"
-            for t in tools_list
-            if t['name'] != 'invalid_tool'
-        ])
+        # We no longer statically dump all tools here. The ContextManager will handle it dynamically.
+        tools_list = [t for t in self._tools.list_tools() if t['name'] != 'invalid_tool']
+        available_tool_names = [t['name'] for t in tools_list]
 
         # Build the plan outline (high-level guidance, NOT parameter-locked)
         plan_outline = "\n".join([
@@ -919,12 +920,9 @@ class SumoKernel:
             "- Do ONE edit at a time.\n"
         )
 
-        # Conversation history for the ReAct loop
-        messages = [
-            f"TASK: {task}\n\n"
-            f"APPROVED PLAN (use as guidance):\n{plan_outline}\n\n"
-            f"Begin. Call your first tool now."
-        ]
+        from sumospace.context import ContextManager, StepRecord
+        
+        ctx = ContextManager(workspace_root=self.settings.workspace_dir)
 
         max_steps = self.settings.react_max_steps
         step_num = 0
@@ -957,8 +955,33 @@ class SumoKernel:
         }
 
         for iteration in range(max_steps):
-            # Build the full conversation as a single user prompt
-            conversation = "\n\n".join(messages)
+            # Build the full conversation using the deterministic Operational Snapshot
+            conversation = ctx.build_snapshot(
+                task=f"TASK: {task}\nAPPROVED PLAN (use as guidance):\n{plan_outline}",
+                available_tool_names=available_tool_names
+            )
+            
+            # Re-inject the tool descriptions for only the filtered tools
+            filtered_names = ctx.filter_tools(available_tool_names)
+            filtered_desc = "\n".join([
+                f"- {t['name']}: {t['description']}\n  Parameters: {json.dumps(t['schema'].get('properties', {}))}"
+                for t in tools_list if t['name'] in filtered_names
+            ])
+            
+            system_dynamic = system.replace("{tools_desc}", filtered_desc)
+            
+            # Simple token estimator: ~4 characters per token
+            step_prompt_chars = len(conversation) + len(system_dynamic)
+            step_estimated_tokens = int(step_prompt_chars / 4.0)
+            trace.total_estimated_tokens += step_estimated_tokens
+            
+            if trace.total_estimated_tokens > self.settings.react_max_tokens:
+                trace.success = False
+                trace.error = f"Context overflow: total estimated tokens ({trace.total_estimated_tokens}) exceeded limit ({self.settings.react_max_tokens})."
+                trace.failure_category = FailureCategory.CONTEXT_OVERFLOW
+                if self.settings.verbose:
+                    console.print(f"    [red]✗ {trace.error}[/red]")
+                break
 
             if self.settings.verbose:
                 console.print(f"  [cyan][ReAct {iteration+1}/{max_steps}][/cyan] Thinking...")
@@ -968,7 +991,7 @@ class SumoKernel:
                 # strings (e.g. full file rewrites) are never dropped by schema enforcement.
                 raw = await self._provider.complete(
                     user=conversation,
-                    system=system,
+                    system=system_dynamic,
                     temperature=0.1,
                     max_tokens=4096,
                 )
@@ -984,7 +1007,17 @@ class SumoKernel:
             except Exception as e:
                 if self.settings.verbose:
                     console.print(f"    [red]✗ JSON parse failed for raw response:[/red]\n{raw}\nError: {e}")
-                messages.append(f"ERROR: Could not parse your response as JSON: {e}. Respond with ONLY a JSON object containing 'thought', 'tool', and 'parameters'.")
+                
+                # Record this as a failed step so the model sees its mistake in the next snapshot
+                ctx.add_step(StepRecord(
+                    step_num=step_num + 1,
+                    tool="parse_error",
+                    thought="",
+                    success=False,
+                    output="",
+                    error=f"Could not parse your response as JSON: {e}",
+                    retry_hint="Respond with ONLY a JSON object containing 'thought', 'tool', and 'parameters'."
+                ))
                 continue
 
             tool_name = action.get("tool", "").strip()
@@ -1026,27 +1059,39 @@ class SumoKernel:
                 duration_ms=step_ms,
                 thought=thought,
                 parameters=parameters,
+                estimated_tokens=step_estimated_tokens,
+                snapshot_context=conversation
             )
             trace.step_traces.append(step_trace)
 
-            # Format result for the conversation
+            # Create deterministic step record for ContextManager
+            record = StepRecord(
+                step_num=step_num,
+                tool=tool_name,
+                thought=thought,
+                success=result.success,
+                output=result.output if result.success else "",
+                error=result.error if not result.success else "",
+                retry_hint=getattr(result, "retry_hint", "") if not result.success else ""
+            )
+            ctx.add_step(record)
+            
+            # If the tool touched a file, add it to active files
+            if "path" in parameters:
+                ctx.add_active_file(parameters["path"])
+
+            # Format result for terminal
             if result.success:
-                output_preview = result.output[:3000] if result.output else "(no output)"
-                messages.append(
-                    f"TOOL RESULT ({tool_name}): SUCCESS\n{output_preview}"
-                )
                 if self.settings.verbose:
                     preview = result.output[:120].replace("\n", " ") if result.output else "(ok)"
                     console.print(f"    [green]✓[/green] {preview}{'...' if result.output and len(result.output) > 120 else ''}")
                 await self.hooks.trigger("on_step_complete", step_trace)
             else:
-                error_msg = f"TOOL RESULT ({tool_name}): FAILED\nError: {result.error}"
                 if getattr(result, "recoverable", False) and getattr(result, "retry_hint", ""):
-                    error_msg += f"\nRECOVERY HINT: {result.retry_hint}"
+                    pass
                 else:
-                    error_msg += "\nFix the error and try again with corrected parameters."
-                
-                messages.append(error_msg)
+                    record.retry_hint = "Fix the error and try again with corrected parameters."
+
                 if self.settings.verbose:
                     console.print(f"    [red]✗ {result.error}[/red]")
                 await self.hooks.trigger("on_step_failed", None, result.error)

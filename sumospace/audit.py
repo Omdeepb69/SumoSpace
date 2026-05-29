@@ -34,6 +34,16 @@ class AuditLogger:
             "intent": trace.intent.name if trace.intent else "UNKNOWN",
             "final_answer": trace.final_answer,
             "error": trace.error,
+            "retries": trace.retries,
+            "total_estimated_tokens": trace.total_estimated_tokens,
+            "total_provider_tokens": trace.total_provider_tokens,
+            "metadata": {
+                "provider": self.settings.provider,
+                "model": self.settings.model,
+                "temperature": self.settings.committee_temperature,
+                "react_max_tokens": self.settings.react_max_tokens,
+                "react_max_steps": self.settings.react_max_steps,
+            }
         }
         
         if verdict:
@@ -53,6 +63,8 @@ class AuditLogger:
                 "success": st.result.success,
                 "duration_ms": st.duration_ms,
                 "error": st.result.error,
+                "estimated_tokens": getattr(st, "estimated_tokens", 0),
+                "snapshot_context": getattr(st, "snapshot_context", ""),
             }
             for st in trace.step_traces
         ]

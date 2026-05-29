@@ -484,17 +484,12 @@ try:
     env["PYTHONPATH"] = "/kaggle/working/SumoSpace"
     
     # Inject Domain Context to prevent over-planning and over-rejecting
-    env["SUMO_GLOBAL_DOMAIN_CONTEXT"] = "This is a Python project."
+    env["SUMO_GLOBAL_DOMAIN_CONTEXT"] = "This is a Python project. Ensure all modifications are syntactically valid."
     env["SUMO_PLANNER_DOMAIN_CONTEXT"] = (
-        "For file editing tasks: use replace_text to modify specific lines. ONLY use write_file if you are creating a completely new file.\n"
-        "When using replace_text, your old_text MUST exactly match the file content, including all comments and blank lines.\n"
-        "For code analysis: use ONLY read_file and list_directory.\n"
-        "Never use docker, web_search, or fetch_url unless explicitly required.\n"
+        "Focus on safety and minimal edits.\n"
         "Maximum 5 steps for simple tasks."
     )
     env["SUMO_CRITIC_DOMAIN_CONTEXT"] = (
-        "Approve plans that use replace_text for file editing.\n"
-        "Reject plans that attempt to use write_file to modify existing files.\n"
         "Flag HIGH RISK: any plan touching auth/ or security/.\n"
         "Flag LOW RISK: docstrings, type hints, variable renames.\n"
         "Use 'revise' not 'reject' for plans with unnecessary steps."

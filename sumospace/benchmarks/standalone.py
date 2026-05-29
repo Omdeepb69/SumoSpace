@@ -51,6 +51,7 @@ class TaskResult:
     tool_failures:  int = 0
     retries:        int = 0
     steps_executed: int = 0
+    total_estimated_tokens: int = 0
     notes:          str = ""
 
 @dataclass
@@ -378,11 +379,16 @@ async def run_single_task(
         tool_failures = 0
         tool_calls = 0
         steps_executed = 0
+        total_tokens = 0
+        retries = 0
 
         try:
             async with SumoKernel(settings=settings) as kernel:
                 trace = await kernel.run(task["prompt"])
                 output_text = str(getattr(trace, "final_output", getattr(trace, "final_answer", trace)))
+                
+                total_tokens = getattr(trace, "total_estimated_tokens", 0)
+                retries = getattr(trace, "retries", 0)
 
                 step_traces = getattr(trace, "step_traces", [])
                 steps_executed = len(step_traces)
@@ -429,8 +435,9 @@ async def run_single_task(
             duration_s=round(duration, 2),
             error=error_msg,
             tool_failures=tool_failures,
-            retries=0,
+            retries=retries,
             steps_executed=steps_executed,
+            total_estimated_tokens=total_tokens,
             notes=notes
         )
 

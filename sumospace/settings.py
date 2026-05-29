@@ -69,8 +69,12 @@ class SumoSettings(BaseSettings):
         )
     )
     react_max_steps: int = Field(
-        12,
+        30,
         description="Maximum number of tool calls in a single ReAct execution loop."
+    )
+    react_max_tokens: int = Field(
+        40000,
+        description="Maximum cumulative tokens allowed per execution loop before hard abort."
     )
     rag_enabled: bool = Field(
         True,
@@ -87,7 +91,7 @@ class SumoSettings(BaseSettings):
     )
     
     max_retries: int = 3
-    execution_timeout: int = 120
+    execution_timeout: int = 180
     verbose: bool = True
     dry_run: bool = False
     hf_load_in_4bit: bool = False
