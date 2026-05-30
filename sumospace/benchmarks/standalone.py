@@ -383,8 +383,22 @@ async def run_single_task(
         retries = 0
 
         try:
+            import logging
+            logging.basicConfig(level=logging.DEBUG)
             async with SumoKernel(settings=settings) as kernel:
+                print(f"[DEBUG] Task: {task['name']}")
+                print(f"[DEBUG] Workspace: {tmpdir}")
+                print(f"[DEBUG] Files before: {list(Path(tmpdir).rglob('*'))}")
+                
                 trace = await kernel.run(task["prompt"])
+                
+                print(f"[DEBUG] steps_executed: {len(getattr(trace, 'step_traces', []))}")
+                print(f"[DEBUG] step_traces: {[(s.tool, getattr(s.result, 'success', True) if getattr(s, 'result', None) else True) for s in getattr(trace, 'step_traces', [])]}")
+                print(f"[DEBUG] final_answer: {getattr(trace, 'final_answer', '')[:200]}")
+                print(f"[DEBUG] trace.success: {trace.success}")
+                print(f"[DEBUG] Files after: {list(Path(tmpdir).rglob('*'))}")
+                print(f"[DEBUG] File contents after: {[open(f).read() for f in Path(tmpdir).rglob('*.py')]}")
+                
                 output_text = str(getattr(trace, "final_output", getattr(trace, "final_answer", trace)))
                 
                 total_tokens = getattr(trace, "total_estimated_tokens", 0)

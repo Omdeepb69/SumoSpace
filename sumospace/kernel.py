@@ -978,11 +978,13 @@ class SumoKernel:
                     messages=messages,
                     tools=schemas
                 )
-            except NotImplementedError:
+            except NotImplementedError as e:
+                import sys
+                print(f"[FATAL] Provider does not support tool calling: {e}", file=sys.stderr)
                 if self.settings.verbose:
                     console.print(f"    [red]✗ Provider {self._provider.name} does not support complete_with_tools[/red]")
                 trace.success = False
-                trace.error = f"Provider {self._provider.name} does not support native tool calling."
+                trace.error = str(e)
                 break
             except Exception as e:
                 if self.settings.verbose:
