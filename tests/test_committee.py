@@ -52,8 +52,8 @@ class TestPlannerAgent:
         class GarbageProvider:
             async def complete(self, **kwargs):
                 return "not json at all ~~~ {{{}}"
-            async def complete_structured(self, **kwargs):
-                return "not json at all ~~~ {{{}}"
+            async def complete_with_tools(self, **kwargs):
+                return {"type": "text", "content": "not json at all ~~~ {{{}}"}
             async def initialize(self): pass
 
         agent = PlannerAgent(GarbageProvider())
@@ -81,8 +81,8 @@ class TestCriticAgent:
         class BadProvider:
             async def complete(self, **kwargs):
                 return "totally invalid"
-            async def complete_structured(self, **kwargs):
-                return "totally invalid"
+            async def complete_with_tools(self, **kwargs):
+                return {"type": "text", "content": "totally invalid"}
             async def initialize(self): pass
 
         agent = CriticAgent(BadProvider())
@@ -121,8 +121,8 @@ class TestResolverAgent:
         class RejectProvider:
             async def complete(self, **kwargs):
                 return '{"approved": false, "rejection_reason": "too dangerous"}'
-            async def complete_structured(self, **kwargs):
-                return '{"approved": false, "rejection_reason": "too dangerous"}'
+            async def complete_with_tools(self, **kwargs):
+                return {"type": "tool_calls", "tool_calls": [{"id": "1", "name": "submit_resolution", "arguments": {"approved": False, "rejection_reason": "too dangerous"}}]}
             async def initialize(self): pass
 
         agent = ResolverAgent(RejectProvider())
@@ -169,30 +169,31 @@ class TestCommittee:
         call_count = [0]
 
         class StrictProvider:
-            async def complete(self, user="", system="", **kwargs):
-                return await self.complete_structured(user=user, system=system, **kwargs)
+            async def complete(self, messages=[], tools=[], **kwargs):
+                return await self.complete_with_tools(messages=messages, tools=tools, **kwargs)
 
-            async def complete_structured(self, user="", system="", **kwargs):
+            async def complete_with_tools(self, messages=[], tools=[], **kwargs):
                 call_count[0] += 1
+                system = messages[0]["content"] if messages and messages[0].get("role") == "system" else ""
                 # First call: planner
-                if "steps" in system and "planner" in system.lower():
-                    return json.dumps({
+                if "planner" in system.lower():
+                    return {"type": "tool_calls", "tool_calls": [{"id": "1", "name": "submit_plan", "arguments": {
                         "reasoning": "plan",
                         "estimated_duration_s": 1,
                         "steps": [{"step_number": 1, "tool": "shell",
                                    "description": "dangerous", "parameters": {"command": "rm -rf /"},
                                    "critical": True}]
-                    })
+                    }}]}
                 # Second call: critic — always reject with blockers
-                if "risks" in system.lower() or "critic" in system.lower():
-                    return json.dumps({
+                if "critic" in system.lower():
+                    return {"type": "tool_calls", "tool_calls": [{"id": "1", "name": "submit_critique", "arguments": {
                         "risks": ["destroys filesystem"],
                         "blockers": ["rm -rf / is catastrophic"],
                         "suggestions": [],
                         "verdict": "reject",
-                        "verdict_reason": "unacceptably dangerous",
-                    })
-                return "{}"
+                        "reason": "unacceptably dangerous",
+                    }}]}
+                return {"type": "text", "content": "{}"}
 
             async def initialize(self): pass
 

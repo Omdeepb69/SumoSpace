@@ -18,7 +18,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from .parsing import parse_llm_json
 from .schemas import ExecutionPlan, ExecutionStep, CritiqueVerdict, ResolverOutput, dereference_schema
 
 
@@ -138,25 +137,39 @@ class PlannerAgent(BaseAgent):
                         available_tool_names.append(tool_name)
 
         schema = dereference_schema(ExecutionPlan.model_json_schema())
+        schema["additionalProperties"] = False
+        
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "submit_plan",
+                "description": "Submit the execution plan",
+                "parameters": schema
+            }
+        }
 
         last_raw = ""
         for attempt in range(3):
             try:
-                raw = await self._provider.complete_structured(
-                    user=prompt,
-                    system=system,
-                    schema=schema,
-                    temperature=min(0.1 + (attempt * 0.1), 0.4),
-                    max_tokens=2048,
+                response = await self._provider.complete_with_tools(
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": prompt}
+                    ],
+                    tools=[tool_schema]
                 )
+                
+                if response.get("type") != "tool_calls" or not response.get("tool_calls"):
+                    last_raw = response.get("content", "")
+                    raise ValueError(f"Model returned text instead of calling submit_plan: {last_raw}")
+                    
+                tc = response["tool_calls"][0]
+                if tc["name"] != "submit_plan":
+                    raise ValueError(f"Model called wrong tool: {tc['name']}")
+                    
+                args_dict = tc["arguments"]
+                raw = json.dumps(args_dict)
                 last_raw = raw
-
-                # Guard: empty string means grammar engine failed silently
-                if not raw or not raw.strip():
-                    raise ValueError(
-                        f"Structured output returned empty string (attempt {attempt+1}/3). "
-                        "Likely a grammar/schema incompatibility in the provider."
-                    )
 
                 plan = ExecutionPlan.model_validate_json(raw)
                 plan.raw_output = raw
@@ -173,14 +186,6 @@ class PlannerAgent(BaseAgent):
                 if os.environ.get("DEBUG_PLANNER"):
                     with open("/tmp/planner_debug.log", "a") as f:
                         f.write(f"\n--- FALLBACK (Attempt {attempt+1}) ---\nError: {e}\nRaw:\n{last_raw}\n")
-                
-                # If structured parsing totally fails, attempt legacy repair logic
-                try:
-                    plan, _ = self._legacy_parse_plan(task, last_raw)
-                    if plan.steps:
-                        return plan, last_raw
-                except Exception:
-                    pass
 
         # Return a failed empty plan if all attempts failed
         return ExecutionPlan(
@@ -246,30 +251,7 @@ class PlannerAgent(BaseAgent):
         return plan
 
     def _legacy_parse_plan(self, task: str, raw: str) -> tuple[ExecutionPlan, str]:
-        # LEGACY FALLBACK
-        try:
-            data, repair_used = parse_llm_json(raw, expected_keys=["steps"])
-            steps = [
-                ExecutionStep(
-                    step_number=s.get("step_number", i + 1),
-                    tool=s.get("tool", "shell"),
-                    description=s.get("description", ""),
-                    parameters=s.get("parameters", {}),
-                    expected_output=s.get("expected_output", ""),
-                    critical=s.get("critical", False),
-                )
-                for i, s in enumerate(data.get("steps", []))
-            ]
-            return ExecutionPlan(
-                protocol_version="1.0",
-                task=task,
-                steps=steps,
-                reasoning=data.get("reasoning", ""),
-                estimated_duration_s=int(data.get("estimated_duration_s", 30)),
-                raw_output=raw,
-            ), raw
-        except Exception:
-            raise
+        raise NotImplementedError("Legacy parsing is removed.")
 
 
 class CriticAgent(BaseAgent):
@@ -285,25 +267,39 @@ class CriticAgent(BaseAgent):
 
         system = self._build_system_prompt(CRITIC_SYSTEM, "critic")
         schema = dereference_schema(CritiqueVerdict.model_json_schema())
+        schema["additionalProperties"] = False
+        
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "submit_critique",
+                "description": "Submit the critique verdict",
+                "parameters": schema
+            }
+        }
 
         last_raw = ""
         for attempt in range(3):
             try:
-                raw = await self._provider.complete_structured(
-                    user=f"Review this execution plan:\n{plan_json}",
-                    system=system,
-                    schema=schema,
-                    temperature=min(0.1 + (attempt * 0.1), 0.4),
-                    max_tokens=1024,
+                response = await self._provider.complete_with_tools(
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": f"Review this execution plan:\n{plan_json}"}
+                    ],
+                    tools=[tool_schema]
                 )
+                
+                if response.get("type") != "tool_calls" or not response.get("tool_calls"):
+                    last_raw = response.get("content", "")
+                    raise ValueError(f"Model returned text instead of calling submit_critique: {last_raw}")
+                    
+                tc = response["tool_calls"][0]
+                if tc["name"] != "submit_critique":
+                    raise ValueError(f"Model called wrong tool: {tc['name']}")
+                    
+                args_dict = tc["arguments"]
+                raw = json.dumps(args_dict)
                 last_raw = raw
-
-                # Guard: empty string means grammar engine failed silently
-                if not raw or not raw.strip():
-                    raise ValueError(
-                        f"Structured output returned empty string (attempt {attempt+1}/3). "
-                        "Likely a grammar/schema incompatibility in the provider."
-                    )
 
                 verdict_model = CritiqueVerdict.model_validate_json(raw)
                 return (
@@ -314,20 +310,94 @@ class CriticAgent(BaseAgent):
                     raw
                 )
             except Exception as e:
-                # LEGACY FALLBACK
-                try:
-                    data, _ = parse_llm_json(last_raw, expected_keys=["verdict"])
-                    return (
-                        data.get("verdict", "approve"),
-                        data.get("verdict_reason", ""),
-                        data.get("risks", []),
-                        data.get("blockers", []),
-                        last_raw
-                    )
-                except Exception:
-                    if attempt == 2:
-                        return "approve", "Critique parsing failed", [], [], last_raw
-                    continue
+                if attempt == 2:
+                    return "approve", f"Critique parsing failed: {e}", [], [], last_raw
+                continue
+
+    async def evaluate_tool_call(
+        self,
+        tool_name: str,
+        tool_args: dict,
+        messages_history: list[dict],
+        safety_context: str | None = None
+    ):
+        """Pre-dispatch interception hook. Returns a HookResult."""
+        from dataclasses import dataclass
+        from typing import Literal
+
+        @dataclass
+        class HookResult:
+            action: Literal["approve", "mutate", "reject"]
+            mutated_args: dict | None = None
+            rejection_message: str | None = None
+
+        system = self._build_system_prompt(CRITIC_SYSTEM, "critic")
+        if safety_context:
+            system += f"\n\nSAFETY RULES:\n{safety_context}"
+            
+        system += (
+            "\n\nYou are intercepting a tool call BEFORE it executes. "
+            "Review the tool call against the safety rules and history. "
+            "If it is safe, approve. If it is mostly safe but needs tweaks (e.g. better search query), mutate. "
+            "If it is unsafe or highly repetitive, reject."
+        )
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["approve", "mutate", "reject"]},
+                "mutated_args": {"type": "object", "additionalProperties": True},
+                "rejection_message": {"type": "string"}
+            },
+            "required": ["action"],
+            "additionalProperties": False
+        }
+        
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "submit_hook_result",
+                "description": "Submit the evaluation result for the tool call",
+                "parameters": schema
+            }
+        }
+        
+        # We append a synthetic message asking the Critic to evaluate the pending call
+        prompt_msg = {
+            "role": "user",
+            "content": f"Pending Tool Call:\nName: {tool_name}\nArguments: {json.dumps(tool_args)}\n\nPlease evaluate this tool call."
+        }
+        
+        eval_messages = [{"role": "system", "content": system}] + messages_history + [prompt_msg]
+        
+        for attempt in range(2):
+            try:
+                response = await self._provider.complete_with_tools(
+                    messages=eval_messages,
+                    tools=[tool_schema]
+                )
+                
+                if response.get("type") != "tool_calls" or not response.get("tool_calls"):
+                    raise ValueError("Model returned text instead of calling submit_hook_result")
+                    
+                tc = response["tool_calls"][0]
+                if tc["name"] != "submit_hook_result":
+                    raise ValueError(f"Model called wrong tool: {tc['name']}")
+                    
+                args_dict = tc["arguments"]
+                action = args_dict.get("action", "approve")
+                mutated_args = args_dict.get("mutated_args")
+                rejection_message = args_dict.get("rejection_message")
+                
+                if action == "mutate" and not mutated_args:
+                    action = "approve"  # Fallback if mutated args missing
+                    
+                return HookResult(action=action, mutated_args=mutated_args, rejection_message=rejection_message)
+            except Exception:
+                continue
+                
+        # Fallback to approve if structured parsing fails repeatedly
+        return HookResult(action="approve")
 
 
 class ResolverAgent(BaseAgent):
@@ -368,25 +438,39 @@ class ResolverAgent(BaseAgent):
 
         base_system = self._build_system_prompt(RESOLVER_SYSTEM, "resolver")
         schema = dereference_schema(ResolverOutput.model_json_schema())
+        schema["additionalProperties"] = False
+        
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "submit_resolution",
+                "description": "Submit the resolved plan",
+                "parameters": schema
+            }
+        }
         
         last_raw = ""
         for attempt in range(3):
             try:
-                raw = await self._provider.complete_structured(
-                    user=prompt,
-                    system=base_system,
-                    schema=schema,
-                    temperature=min(0.1 + (attempt * 0.1), 0.4),
-                    max_tokens=2048,
+                response = await self._provider.complete_with_tools(
+                    messages=[
+                        {"role": "system", "content": base_system},
+                        {"role": "user", "content": prompt}
+                    ],
+                    tools=[tool_schema]
                 )
+                
+                if response.get("type") != "tool_calls" or not response.get("tool_calls"):
+                    last_raw = response.get("content", "")
+                    raise ValueError(f"Model returned text instead of calling submit_resolution: {last_raw}")
+                    
+                tc = response["tool_calls"][0]
+                if tc["name"] != "submit_resolution":
+                    raise ValueError(f"Model called wrong tool: {tc['name']}")
+                    
+                args_dict = tc["arguments"]
+                raw = json.dumps(args_dict)
                 last_raw = raw
-
-                # Guard: empty string means grammar engine failed silently
-                if not raw or not raw.strip():
-                    raise ValueError(
-                        f"Structured output returned empty string (attempt {attempt+1}/3). "
-                        "Likely a grammar/schema incompatibility in the provider."
-                    )
 
                 resolver_model = ResolverOutput.model_validate_json(raw)
                 
@@ -416,53 +500,12 @@ class ResolverAgent(BaseAgent):
                 return final_plan, True, final_plan.approval_notes, raw
                 
             except Exception as e:
-                # LEGACY FALLBACK
-                if not last_raw or not last_raw.strip():
-                    if attempt < 2:
-                        continue
-                    return original_plan, False, "", (
-                        f"Resolver returned empty output on all attempts. "
-                        "Provider grammar engine likely cannot handle the schema."
-                    )
-
-                try:
-                    data, _ = parse_llm_json(last_raw, expected_keys=["approved"])
-                    approved = bool(data.get("approved", False))
-
-                    if not approved:
-                        rejection = data.get("rejection_reason", "Rejected by resolver")
-                        return original_plan, False, "", rejection
-
-                    steps = [
-                        ExecutionStep(
-                            step_number=s.get("step_number", i + 1),
-                            tool=s.get("tool", "shell"),
-                            description=s.get("description", ""),
-                            parameters=s.get("parameters", {}),
-                            expected_output=s.get("expected_output", ""),
-                            critical=s.get("critical", False),
-                        )
-                        for i, s in enumerate(data.get("steps", data.get("revised_steps", [])))
-                    ]
-                    plan = ExecutionPlan(
-                        protocol_version="1.0",
-                        task=task,
-                        steps=steps,
-                        reasoning=data.get("reasoning", ""),
-                        estimated_duration_s=int(data.get("estimated_duration_s", 30)),
-                        risks=risks,
-                        approved=True,
-                        approval_notes=data.get("approval_notes", ""),
-                        raw_output=last_raw,
-                    )
-                    return plan, True, plan.approval_notes, last_raw
-                except Exception:
-                    if attempt < 2:
-                        continue
-                    return original_plan, False, "", (
-                        f"Resolver output unparseable ({e}). "
-                        "Refusing to approve a critic-flagged plan with unverifiable resolution."
-                    )
+                if attempt < 2:
+                    continue
+                return original_plan, False, "", (
+                    f"Resolver output unparseable ({e}). "
+                    "Refusing to approve a critic-flagged plan with unverifiable resolution."
+                )
 
 
 # ─── Committee ────────────────────────────────────────────────────────────────

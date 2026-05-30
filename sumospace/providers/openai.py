@@ -73,6 +73,48 @@ class OpenAIProvider(BaseProvider):
         resp = await self._client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content
 
+    async def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> dict:
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.1,
+            "max_tokens": 4096,
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+            
+        resp = await self._client.chat.completions.create(**kwargs)
+        choice = resp.choices[0]
+        
+        if choice.message.tool_calls:
+            tool_calls = []
+            import json
+            for tc in choice.message.tool_calls:
+                tool_calls.append({
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments
+                })
+            return {
+                "type": "tool_calls",
+                "tool_calls": tool_calls,
+                "assistant_message": choice.message.model_dump()
+            }
+        else:
+            return {"type": "text", "content": choice.message.content or ""}
+
+    def format_tool_result(self, tool_call_id: str, name: str, content: str) -> dict | list[dict]:
+        return {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": name,
+            "content": content
+        }
+
     async def stream(
         self, user: str, system: str = "", temperature: float = 0.2
     ) -> AsyncIterator[str]:

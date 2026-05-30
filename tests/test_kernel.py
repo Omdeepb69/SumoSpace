@@ -143,7 +143,7 @@ class TestKernelRun:
         cfg = fast_config(tmp_path, tmp_chroma)
         cfg.dry_run = False
         cfg.require_consensus = True
-        cfg.execution_mode = "plan"  # use linear plan runner, not ReAct
+        cfg.execution_mode = "plan_execute"  # use linear plan runner, not ReAct
         kernel = await self._make_kernel(tmp_path, tmp_chroma, mock_provider, cfg=cfg)
         
         # Mock classifier to ensure execution is triggered

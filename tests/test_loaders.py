@@ -35,10 +35,19 @@ async def test_youtube_loader_returns_chunks():
         {"text": "This is a test", "start": 2.0, "duration": 2.0},
     ]
     # fetch() is now an instance method in youtube-transcript-api>=0.6
-    # We mock the class so instantiation returns a mock with fetch() configured.
-    mock_instance = MagicMock()
-    mock_instance.fetch.return_value = iter(fake_transcript)
-    with patch("youtube_transcript_api.YouTubeTranscriptApi", return_value=mock_instance):
+    # We mock the class so get_transcript returns the fake transcript dicts
+    with patch("youtube_transcript_api.YouTubeTranscriptApi") as MockApi:
+        MockApi.get_transcript.return_value = fake_transcript
+        
+        # For the new API (1.0+), fetch returns objects with a .text attribute
+        class FakeSnippet:
+            def __init__(self, text):
+                self.text = text
+        
+        mock_instance = MagicMock()
+        mock_instance.fetch.return_value = [FakeSnippet(t["text"]) for t in fake_transcript]
+        MockApi.return_value = mock_instance
+        
         loader = YouTubeLoader(chunk_size=100)
         chunks = await loader.load("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 

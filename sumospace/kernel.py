@@ -176,6 +176,13 @@ class ExecutionTrace:
     def failed_steps(self) -> list[StepTrace]:
         return [t for t in self.step_traces if not t.result.success]
 
+    def to_json(self) -> dict:
+        import json
+        from dataclasses import asdict
+        return json.loads(
+            json.dumps(asdict(self), default=str)
+        )
+
 
 # ─── Kernel ───────────────────────────────────────────────────────────────────
 
@@ -635,9 +642,9 @@ class SumoKernel:
             elif self.settings.execution_mode == "react":
                 async with self.telemetry.async_span("sumospace.execute.react", attributes={"task": task}):
                     await self._execute_react(task, verdict.plan, trace, full_context)
-            else:
-                async with self.telemetry.async_span("sumospace.execute", attributes={"steps": len(verdict.plan.steps)}):
-                    await self._execute_plan(verdict.plan, trace)
+            elif self.settings.execution_mode == "plan_execute":
+                async with self.telemetry.async_span("sumospace.execute.plan_execute", attributes={"task": task}):
+                    await self._execute_plan_and_execute(task, verdict.plan, trace, full_context)
 
             # Step 7: Synthesise final answer
             if not trace.final_answer:
@@ -897,16 +904,25 @@ class SumoKernel:
 
     # ── ReAct Execution ────────────────────────────────────────────────────────
 
+    def _build_tool_schemas(self, available_tool_names: list[str]) -> list[dict]:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["schema"]
+                }
+            }
+            for t in self._tools.list_tools() if t["name"] in available_tool_names
+        ]
+
     async def _execute_react(self, task: str, plan: ExecutionPlan, trace: ExecutionTrace, context: str):
         """
-        ReAct (Reason+Act) execution loop.
-        
-        Instead of executing a static plan with pre-baked parameters, this feeds
-        each tool's output back to the LLM so it can make informed decisions.
-        
-        This solves the fundamental problem where replace_text's old_text was
-        hallucinated at planning time before the file was ever read.
+        ReAct (Reason+Act) execution loop using native tool calling API.
         """
+        import json
+
         if not self.settings.execution_enabled:
             trace.final_answer = (
                 f"[Execution disabled] Plan has {len(plan.steps)} steps:\n" +
@@ -915,226 +931,258 @@ class SumoKernel:
             trace.success = True
             return
 
-        # We no longer statically dump all tools here. The ContextManager will handle it dynamically.
+        self._steps_executed = 0
+        step_num = 0
+        max_steps = self.settings.react_max_steps
+
         tools_list = [t for t in self._tools.list_tools() if t['name'] != 'invalid_tool']
         available_tool_names = [t['name'] for t in tools_list]
 
-        # Build the plan outline (high-level guidance, NOT parameter-locked)
         plan_outline = "\n".join([
             f"  {s.step_number}. {s.tool}: {s.description}"
             for s in plan.steps
         ])
 
+        from sumospace.context import ContextManager, StepRecord
+        ctx = ContextManager(workspace_root=self.settings.workspace)
+        
         system = (
-            "You are an autonomous coding agent executing a task step by step.\n"
-            "You have access to these tools:\n"
-            "{tools_desc}\n\n"
-            "WORKFLOW:\n"
-            "1. Analyze the previous step's result and think about what to do next.\n"
-            "2. Respond ONLY with a single JSON object (no markdown, no prose outside the JSON).\n"
-            "3. JSON format: {\"thought\": \"...\", \"tool\": \"<tool_name>\", \"parameters\": {<key>: <value>, ...}}\n"
-            "4. When the task is FULLY COMPLETE, respond: {\"thought\": \"done\", \"tool\": \"done\", \"parameters\": {\"content\": \"summary\"}}\n\n"
-            "CRITICAL RULES FOR write_file:\n"
-            "- 'content' MUST be the COMPLETE text of the file — every single line, not a description.\n"
-            "- Copy the full file from read_file output, make your edits, and put the result in 'content'.\n"
-            "- NEVER put a filename, URL, or description in 'content'. Only actual file text.\n\n"
-            "CRITICAL RULES FOR replace_text:\n"
-            "- 'old_text' MUST be copied EXACTLY verbatim from the file (character-for-character).\n"
-            "- 'new_text' is the replacement.\n\n"
-            "CRITICAL RULES FOR replace_function (PREFERRED for Python):\n"
-            "- Use replace_function instead of replace_text when replacing an entire function or method.\n"
-            "- 'function_name' is the symbol name (e.g. 'login_user' or 'MyClass.my_method').\n"
-            "- 'new_code' MUST be the COMPLETE new function/method definition including 'def ...:' signature.\n"
-            "- The tool handles indentation automatically. You do NOT need to match original indentation.\n\n"
-            "OTHER RULES:\n"
-            "- ALWAYS read a file with read_file BEFORE trying to edit it.\n"
-            "- Do ONE edit at a time.\n"
+            "You are an autonomous coding agent. You have access to tools to read, write, "
+            "and modify files. You MUST use the provided tools to complete this task. "
+            "Do NOT answer conversationally. Do NOT explain what you will do. "
+            "Call a tool immediately."
         )
 
-        from sumospace.context import ContextManager, StepRecord
-        
-        ctx = ContextManager(workspace_root=self.settings.workspace)
+        initial_context = f"TASK: {task}\nAPPROVED PLAN (use as guidance):\n{plan_outline}" if plan_outline else f"TASK: {task}"
 
-        max_steps = self.settings.react_max_steps
-        step_num = 0
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": initial_context}
+        ]
 
-        react_schema = {
-            "type": "object",
-            "properties": {
-                "thought": {
-                    "type": "string",
-                    "description": "Chain-of-thought analysis of what to do next based on previous tool results."
-                },
-                "tool": {
-                    "type": "string",
-                    "description": "Name of the tool to run. Set to 'done' when the task is complete."
-                },
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "File path for read_file, write_file, replace_text, list_directory."},
-                        "content": {"type": "string", "description": "COMPLETE file text for write_file. Must be the full file content with all lines and newlines — NOT a filename or URL."},
-                        "old_text": {"type": "string", "description": "Exact verbatim text to find in a file for replace_text. Copy it character-for-character from read_file output."},
-                        "new_text": {"type": "string", "description": "Replacement text for replace_text."},
-                        "command": {"type": "string", "description": "Shell command string for run_command."},
-                        "query": {"type": "string", "description": "Search query string for web_search or search_files."},
-                        "pattern": {"type": "string", "description": "Regex pattern for search_files."}
-                    }
-                }
-            },
-            "required": ["thought", "tool", "parameters"]
-        }
+        MIN_STEPS_BEFORE_FINISH = 1 if getattr(trace.classification, "needs_execution", True) else 0
+
+        tool_signatures = []
 
         for iteration in range(max_steps):
-            # Build the full conversation using the deterministic Operational Snapshot
-            conversation = ctx.build_snapshot(
-                task=f"TASK: {task}\nAPPROVED PLAN (use as guidance):\n{plan_outline}",
-                available_tool_names=available_tool_names
-            )
+            messages = await self._trim_messages(messages, max_chars=80000)
             
-            # Re-inject the tool descriptions for only the filtered tools
             filtered_names = ctx.filter_tools(available_tool_names)
-            filtered_desc = "\n".join([
-                f"- {t['name']}: {t['description']}\n  Parameters: {json.dumps(t['schema'].get('properties', {}))}"
-                for t in tools_list if t['name'] in filtered_names
-            ])
+            schemas = self._build_tool_schemas(filtered_names)
             
-            system_dynamic = system.replace("{tools_desc}", filtered_desc)
-            
-            # Simple token estimator: ~4 characters per token
-            step_prompt_chars = len(conversation) + len(system_dynamic)
-            step_estimated_tokens = int(step_prompt_chars / 4.0)
-            trace.total_estimated_tokens += step_estimated_tokens
-            
-            if trace.total_estimated_tokens > self.settings.react_max_tokens:
-                trace.success = False
-                trace.error = f"Context overflow: total estimated tokens ({trace.total_estimated_tokens}) exceeded limit ({self.settings.react_max_tokens})."
-                trace.failure_category = FailureCategory.CONTEXT_OVERFLOW
-                if self.settings.verbose:
-                    console.print(f"    [red]✗ {trace.error}[/red]")
-                break
-
             if self.settings.verbose:
                 console.print(f"  [cyan][ReAct {iteration+1}/{max_steps}][/cyan] Thinking...")
 
             try:
-                # Use free-form complete (not structured) so that large content
-                # strings (e.g. full file rewrites) are never dropped by schema enforcement.
-                raw = await self._provider.complete(
-                    user=conversation,
-                    system=system_dynamic,
-                    temperature=0.1,
-                    max_tokens=4096,
+                response = await self._provider.complete_with_tools(
+                    messages=messages,
+                    tools=schemas
                 )
+            except NotImplementedError:
+                if self.settings.verbose:
+                    console.print(f"    [red]✗ Provider {self._provider.name} does not support complete_with_tools[/red]")
+                trace.success = False
+                trace.error = f"Provider {self._provider.name} does not support native tool calling."
+                break
             except Exception as e:
                 if self.settings.verbose:
                     console.print(f"    [red]✗ LLM error: {e}[/red]")
                 break
 
-            # Parse the LLM's tool call
-            from sumospace.parsing import parse_llm_json
-            try:
-                action, repaired = parse_llm_json(raw)
-            except Exception as e:
+            if response is None:
+                trace.success = False
+                trace.error = "Provider returned empty or malformed response."
                 if self.settings.verbose:
-                    console.print(f"    [red]✗ JSON parse failed for raw response:[/red]\n{raw}\nError: {e}")
+                    console.print(f"    [red]✗ {trace.error}[/red]")
+                break
+
+            if response.get("type") == "tool_calls":
+                tool_calls = response["tool_calls"]
+                # Append the raw provider-specific assistant message containing the tool calls
+                if "assistant_message" in response:
+                    messages.append(response["assistant_message"])
+                else:
+                    # Fallback if provider didn't return one (should not happen now)
+                    if response.get("content"):
+                        messages.append({"role": "assistant", "content": response.get("content")})
+                    messages.append({"role": "assistant", "content": f"Calling tools: {', '.join([tc['name'] for tc in tool_calls])}"})
+
+                for tc in tool_calls:
+                    tool_name = tc["name"]
+                    parameters = tc["arguments"]
+                    
+                    if isinstance(parameters, str):
+                        import json
+                        try:
+                            parameters = json.loads(parameters)
+                        except json.JSONDecodeError as e:
+                            error_msg = f"Error: malformed tool arguments — {e}. Try again with valid JSON."
+                            tool_call_id = tc.get("id", "")
+                            tool_msg = self._provider.format_tool_result(tool_call_id, tool_name, error_msg)
+                            messages.append(tool_msg)
+                            if self.settings.verbose:
+                                console.print(f"    [red]✗ {error_msg}[/red]")
+                            await self.hooks.trigger("on_step_failed", None, error_msg)
+                            continue
+
+                    self._steps_executed += 1
+                    step_num += 1
+                    
+                    sig_hash = hash(json.dumps(parameters, sort_keys=True))
+                    signature = f"{tool_name}:{sig_hash}"
+                    tool_signatures.append(signature)
+                    
+                    repeats = tool_signatures.count(signature)
+                    if repeats == 5:
+                        raise ExecutionHaltedError(f"Repetition detected: {tool_name} called with identical arguments 5 times.")
+                    elif repeats >= 3:
+                        if self.settings.verbose:
+                            console.print(f"    [yellow]⚠ Repetition Warning ({repeats}/5)[/yellow]")
+                        messages.append({
+                            "role": "user", 
+                            "content": f"[SYSTEM WARNING] You are repeating the same action ({tool_name}). Please try a different approach."
+                        })
+                    
+                    if self.settings.verbose:
+                        import json
+                        console.print(
+                            f"  [cyan][{step_num}][/cyan] "
+                            f"{tool_name}: {json.dumps(parameters)[:120]}"
+                        )
+                        
+                    await self.hooks.trigger("on_step_start", None)
+                    step_start = time.monotonic()
+                    
+                    try:
+                        import asyncio
+                        if self.settings.committee_enabled and getattr(self._committee, "_critic", None):
+                            try:
+                                hook_result = await asyncio.wait_for(
+                                    self._committee._critic.evaluate_tool_call(
+                                        tool_name=tool_name,
+                                        tool_args=parameters,
+                                        messages_history=messages,
+                                        safety_context=None
+                                    ),
+                                    timeout=15.0
+                                )
+                                if hook_result.action == "reject":
+                                    error_msg = hook_result.rejection_message or "Tool call rejected by safety critic."
+                                    tool_call_id = tc.get("id", "")
+                                    tool_msg = self._provider.format_tool_result(tool_call_id, tool_name, error_msg)
+                                    messages.append(tool_msg)
+                                    if self.settings.verbose:
+                                        console.print(f"    [yellow]⚠ Critic Rejected:[/yellow] {error_msg}")
+                                    continue
+                                elif hook_result.action == "mutate" and hook_result.mutated_args:
+                                    parameters = hook_result.mutated_args
+                                    if self.settings.verbose:
+                                        console.print(f"    [yellow]⚠ Critic Mutated arguments[/yellow]")
+                            except asyncio.TimeoutError:
+                                if self.settings.verbose:
+                                    console.print("    [yellow]⚠ Critic evaluation timed out, defaulting to approve.[/yellow]")
+                            except Exception as e:
+                                if self.settings.verbose:
+                                    console.print(f"    [yellow]⚠ Critic evaluation failed ({e}), defaulting to approve.[/yellow]")
+
+                        async with self.telemetry.async_span(f"sumospace.react.{tool_name}"):
+                            result = await asyncio.wait_for(
+                                self._tools.execute(tool_name, run_id=trace.session_id, **parameters),
+                                timeout=30.0
+                            )
+                        
+                        step_ms = (time.monotonic() - step_start) * 1000
+                        step_trace = StepTrace(step_number=step_num, tool=tool_name, description=f"ReAct step: {tool_name}", result=result, duration_ms=step_ms, thought="", parameters=parameters, estimated_tokens=0, snapshot_context="")
+                        trace.step_traces.append(step_trace)
+                        
+                        tool_call_id = tc.get("id", "")
+                        content_str = result.output if result.success else f"Error: {result.error}"
+                        tool_msg = self._provider.format_tool_result(tool_call_id, tool_name, content_str)
+                        messages.append(tool_msg)
+                        
+                        if result.success:
+                            if self.settings.verbose:
+                                preview = result.output[:120].replace("\n", " ") if result.output else "(ok)"
+                                console.print(f"    [green]✓[/green] {preview}{'...' if result.output and len(result.output) > 120 else ''}")
+                            await self.hooks.trigger("on_step_complete", step_trace)
+                        else:
+                            if self.settings.verbose:
+                                console.print(f"    [red]✗ {result.error}[/red]")
+                            await self.hooks.trigger("on_step_failed", None, result.error)
+                            
+                        if "path" in parameters:
+                            ctx.add_active_file(parameters["path"])
+                            
+                    except asyncio.TimeoutError:
+                        error_msg = f"Tool execution timed out after 30 seconds."
+                        tool_call_id = tc.get("id", "")
+                        tool_msg = self._provider.format_tool_result(tool_call_id, tool_name, error_msg)
+                        messages.append(tool_msg)
+                        if self.settings.verbose:
+                            console.print(f"    [red]✗ {error_msg}[/red]")
+                        await self.hooks.trigger("on_step_failed", None, error_msg)
+                    except Exception as e:
+                        error_msg = f"Tool execution failed: {e}"
+                        tool_call_id = tc.get("id", "")
+                        tool_msg = self._provider.format_tool_result(tool_call_id, tool_name, error_msg)
+                        messages.append(tool_msg)
+                        if self.settings.verbose:
+                            console.print(f"    [red]✗ {error_msg}[/red]")
+                        await self.hooks.trigger("on_step_failed", None, error_msg)
+
+                if any(f.endswith(".py") for f in ctx.active_files):
+                    ctx.symbol_graph.update_index()
                 
-                # Record this as a failed step so the model sees its mistake in the next snapshot
-                ctx.add_step(StepRecord(
-                    step_num=step_num + 1,
-                    tool="parse_error",
-                    thought="",
-                    success=False,
-                    output="",
-                    error=f"Could not parse your response as JSON: {e}",
-                    retry_hint="Respond with ONLY a JSON object containing 'thought', 'tool', and 'parameters'."
-                ))
-                continue
+                ctx_update = f"[ENVIRONMENT UPDATE]\nActive Files: {', '.join(ctx.active_files) if ctx.active_files else '(None)'}\nWorkspace Symbols:\n{ctx.symbol_graph.format_summary()}"
+                messages.append({"role": "user", "content": ctx_update})
 
-            tool_name = action.get("tool", "").strip()
-            parameters = action.get("parameters", {})
-            thought = action.get("thought", "").strip()
-
-            if thought and self.settings.verbose:
-                console.print(f"    [dim]Thought: {thought}[/dim]")
-
-            # Check for completion
-            if tool_name == "done":
-                summary = action.get("summary") or parameters.get("content") or "Task completed."
+            else:
+                if self._steps_executed < MIN_STEPS_BEFORE_FINISH:
+                    messages.append({
+                        "role": "user",
+                        "content": "You haven't taken any action yet. Use a tool to begin the task."
+                    })
+                    if self.settings.verbose:
+                        console.print("    [yellow]⚠ Premature finish rejected. Forcing tool usage.[/yellow]")
+                    continue
+                    
+                summary = response.get("content", "Task completed.")
                 if self.settings.verbose:
                     console.print(f"    [green]✓ Done:[/green] {summary}")
                 trace.final_answer = summary
                 break
 
-            # Execute the tool
-            step_num += 1
-            if self.settings.verbose:
-                console.print(
-                    f"  [cyan][{step_num}][/cyan] "
-                    f"{tool_name}: {json.dumps(parameters)[:120]}"
-                )
+        if not trace.final_answer:
+            trace.final_answer = "MAX_STEPS reached"
+        trace.success = any(t.result.success for t in trace.step_traces) if getattr(trace, 'step_traces', []) else False
 
-            await self.hooks.trigger("on_step_start", None)
-
-            step_start = time.monotonic()
-            async with self.telemetry.async_span(f"sumospace.react.{tool_name}"):
-                result = await self._tools.execute(tool_name, run_id=trace.session_id, **parameters)
-            step_ms = (time.monotonic() - step_start) * 1000
-
-            # Create a step trace
-            step_trace = StepTrace(
-                step_number=step_num,
-                tool=tool_name,
-                description=f"ReAct step: {tool_name}",
-                result=result,
-                duration_ms=step_ms,
-                thought=thought,
-                parameters=parameters,
-                estimated_tokens=step_estimated_tokens,
-                snapshot_context=conversation
-            )
-            trace.step_traces.append(step_trace)
-
-            # Create deterministic step record for ContextManager
-            record = StepRecord(
-                step_num=step_num,
-                tool=tool_name,
-                thought=thought,
-                success=result.success,
-                output=result.output if result.success else "",
-                error=result.error if not result.success else "",
-                retry_hint=getattr(result, "retry_hint", "") if not result.success else ""
-            )
-            ctx.add_step(record)
+    async def _trim_messages(self, messages: list[dict], max_chars: int = 40000) -> list[dict]:
+        """Ensures the message history doesn't exceed context limits by summarizing middle messages."""
+        import json
+        total_len = sum(len(json.dumps(m)) for m in messages)
+        if total_len <= max_chars:
+            return messages
             
-            # If the tool touched a file, add it to active files
-            if "path" in parameters:
-                ctx.add_active_file(parameters["path"])
-
-            # Format result for terminal
-            if result.success:
-                if self.settings.verbose:
-                    preview = result.output[:120].replace("\n", " ") if result.output else "(ok)"
-                    console.print(f"    [green]✓[/green] {preview}{'...' if result.output and len(result.output) > 120 else ''}")
-                await self.hooks.trigger("on_step_complete", step_trace)
-            else:
-                if getattr(result, "recoverable", False) and getattr(result, "retry_hint", ""):
-                    pass
-                else:
-                    record.retry_hint = "Fix the error and try again with corrected parameters."
-
-                if self.settings.verbose:
-                    console.print(f"    [red]✗ {result.error}[/red]")
-                await self.hooks.trigger("on_step_failed", None, result.error)
-
-            messages.append("What is your next action? Respond with a JSON tool call, or {\"tool\": \"done\", \"summary\": \"...\"} if the task is complete.")
-
-        trace.success = any(t.result.success for t in trace.step_traces) if trace.step_traces else False
+        system_msgs = messages[:2]
+        recent_msgs = messages[-6:] if len(messages) > 8 else []
+        middle_msgs = messages[2:-6] if len(messages) > 8 else []
+        
+        if not middle_msgs:
+            return messages
+            
+        try:
+            middle_text = "\\n".join(json.dumps(m)[:500] for m in middle_msgs)
+            summary_prompt = f"Summarize the following old tool execution history compactly:\\n{middle_text}"
+            summary = await self._provider.complete(user=summary_prompt, system="You are a summarizer. Keep it extremely brief.", max_tokens=256)
+            summary_msg = {"role": "system", "content": f"[HISTORY SUMMARY]\\n{summary}"}
+            return system_msgs + [summary_msg] + recent_msgs
+        except Exception:
+            return system_msgs + [{"role": "system", "content": "[HISTORY TRUNCATED]"}] + recent_msgs
 
     # ── Plan Execution ───────────────────────────────────────────────────────
 
-    async def _execute_plan(self, plan: ExecutionPlan, trace: ExecutionTrace):
-        """Execute each step in the approved plan sequentially."""
+    async def _execute_plan_and_execute(self, task: str, plan: ExecutionPlan, trace: ExecutionTrace, context: str):
+        """Sequential plan execution with ReAct per step."""
         if not self.settings.execution_enabled:
             trace.final_answer = (
                 f"[Execution disabled] Plan has {len(plan.steps)} steps:\n" +
@@ -1142,46 +1190,108 @@ class SumoKernel:
             )
             trace.success = True
             return
+
+        current_plan = plan
+        step_idx = 0
+        replan_count = 0
+        MAX_REPLANS = 3
+        
+        while step_idx < len(current_plan.steps):
+            step = current_plan.steps[step_idx]
             
-        for step in plan.steps:
-            if self.settings.verbose:
-                console.print(
-                    f"  [cyan][{step.step_number}/{len(plan.steps)}][/cyan] "
-                    f"{step.tool}: {step.description}"
-                )
-
-            await self.hooks.trigger("on_step_start", step)
-
-            step_start = time.monotonic()
-            async with self.telemetry.async_span(f"sumospace.tool.{step.tool}", attributes={"description": step.description}):
-                result = await self._tools.execute(step.tool, run_id=trace.session_id, **step.parameters)
-            step_ms = (time.monotonic() - step_start) * 1000
-
-            step_trace = StepTrace(
-                step_number=step.step_number,
-                tool=step.tool,
-                description=step.description,
-                result=result,
-                duration_ms=step_ms,
+            # Create a fresh trace for the sub-step to keep step logic isolated
+            sub_trace = ExecutionTrace(
+                session_id=trace.session_id, 
+                task=f"Step {step.step_number}: {step.description}",
+                intent=getattr(trace, "intent", Intent.GENERAL_QA),
+                classification=getattr(trace, "classification", None),
+                plan=None
             )
-            trace.step_traces.append(step_trace)
-
-            if result.success:
-                await self.hooks.trigger("on_step_complete", step_trace)
+            
+            # Execute react loop for this step only
+            await self._execute_react(f"{step.tool}: {step.description}\nArgs: {step.parameters}", ExecutionPlan(task=task, steps=[step], reasoning=""), sub_trace, context)
+            
+            trace.step_traces.extend(sub_trace.step_traces)
+            
+            if not sub_trace.success:
                 if self.settings.verbose:
-                    preview = result.output[:120].replace("\n", " ")
-                    console.print(f"    [green]✓[/green] {preview}{'...' if len(result.output) > 120 else ''}")
-            else:
-                await self.hooks.trigger("on_step_failed", step, result.error)
-                if self.settings.verbose:
-                    console.print(f"    [red]✗ {result.error}[/red]")
+                    from rich.console import Console
+                    console = Console()
+                    console.print(f"    [yellow]⚠ Step {step.step_number} failed. Re-planning...[/yellow]")
+                
+                if replan_count >= MAX_REPLANS:
+                    if self.settings.verbose:
+                        console.print("    [red]✗ Max replans reached. Aborting plan execution.[/red]")
+                    break
+                
+                # Context injection for replan
+                replan_ctx = context + f"\n\n[PREVIOUS PLAN FAILURE]\nStep {step.step_number} failed. Sub-trace final answer: {sub_trace.final_answer}\nUpdate the plan to recover."
+                new_plan, _ = await self._committee._planner.plan(task, context=replan_ctx)
+                if new_plan and new_plan.steps:
+                    current_plan = new_plan
+                    step_idx = 0
+                    replan_count += 1
+                    continue
+                else:
+                    break
+            
+            step_idx += 1
+            
+        await self._reflect(trace)
+        
+    async def _reflect(self, trace: ExecutionTrace):
+        """Reflection pass to verify if the task was completed successfully."""
+        from sumospace.schemas import dereference_schema
+        system = "You are a Reflection Agent. Review the execution trace and determine if the task was completed successfully. If not, trigger a retry."
+        
+        schema = {
+            "type": "object",
+            "properties": {
+                "success": {"type": "boolean"},
+                "reason": {"type": "string"},
+                "retry": {"type": "boolean"}
+            },
+            "required": ["success", "reason", "retry"],
+            "additionalProperties": False
+        }
+        
+        tool_schema = {
+            "type": "function",
+            "function": {
+                "name": "submit_reflection",
+                "description": "Submit reflection results",
+                "parameters": schema
+            }
+        }
+        
+        trace_summary = "\\n".join(f"Step {t.step_number} ({t.tool}): {'Success' if t.result.success else 'Failed'} - {t.result.output[:100]}" for t in trace.step_traces)
+        prompt = f"Task: {trace.task}\n\nTrace Summary:\n{trace_summary}"
+        
+        try:
+            response = await self._provider.complete_with_tools(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt}
+                ],
+                tools=[tool_schema]
+            )
+            
+            if response.get("type") == "tool_calls" and response.get("tool_calls"):
+                tc = response["tool_calls"][0]
+                import json
+                args = json.loads(tc["arguments"]) if isinstance(tc["arguments"], str) else tc["arguments"]
+                
+                trace.success = args.get("success", False)
+                trace.final_answer = f"Reflection: {args.get('reason', '')}"
+                
+                if args.get("retry") and not trace.success:
+                    # In a real scenario we'd loop the outer kernel, but for this sprint
+                    # we just note it.
+                    trace.final_answer += " (Retry needed)"
+        except Exception as e:
+            if getattr(self.settings, "verbose", False):
+                print(f"Reflection failed: {e}")
 
-            if not result.success and step.critical:
-                raise ExecutionHaltedError(
-                    f"Critical step {step.step_number} ({step.tool}) failed: {result.error}"
-                )
-
-        trace.success = all(t.result.success or not t.result.error for t in trace.step_traces)
 
     # ── Synthesis ────────────────────────────────────────────────────────────
 
@@ -1382,8 +1492,8 @@ class SumoKernel:
         if not self._initialized:
             await self.boot()
         
-        from sumospace.media_ingest import MediaIngestor
-        ingestor = MediaIngestor(self.settings)
+        from sumospace.media_ingest import MultimodalIngestor
+        ingestor = MultimodalIngestor(self.settings)
         return ingestor.ingest_path(path, force=force)
 
     async def search_media(self, query: str, top_k: int = 3) -> list[Any]:
@@ -1396,8 +1506,8 @@ class SumoKernel:
         if not self._initialized:
             await self.boot()
             
-        from sumospace.media_search import MediaSearchEngine
-        engine = MediaSearchEngine(self.settings)
+        from sumospace.media_search import MultimodalSearchEngine
+        engine = MultimodalSearchEngine(self.settings)
         return engine.search(query, top_k=top_k)
 
     async def recall(self, query: str, top_k: int = 5):

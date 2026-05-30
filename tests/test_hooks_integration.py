@@ -8,7 +8,7 @@ from sumospace.classifier import ClassificationResult, Intent
 from sumospace.committee import CommitteeVerdict, ExecutionPlan
 
 @pytest.mark.asyncio
-async def test_hook_firing_order(tmp_path):
+async def test_hook_firing_order(tmp_path, mock_provider):
     fired = []
     hooks = HookRegistry()
 
@@ -24,7 +24,7 @@ async def test_hook_firing_order(tmp_path):
     @hooks.on("on_task_complete")
     async def h4(trace): fired.append("task_complete")
 
-    settings = SumoSettings(workspace=str(tmp_path), verbose=False, execution_mode="plan")
+    settings = SumoSettings(workspace=str(tmp_path), verbose=False, execution_mode="plan_execute")
     with patch("sumospace.kernel.ProviderRouter") as MockRouter, \
          patch("sumospace.rag.RAGPipeline") as MockRAG, \
          patch("sumospace.classifier.SumoClassifier") as MockClassifier:
@@ -34,6 +34,7 @@ async def test_hook_firing_order(tmp_path):
         MockClassifier.return_value.initialize = AsyncMock()
 
         async with SumoKernel(settings=settings) as kernel:
+            kernel._provider = mock_provider
             kernel.hooks = hooks
             
             # Mock classifier and committee to avoid real LLM calls

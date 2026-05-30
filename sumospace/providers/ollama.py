@@ -132,6 +132,52 @@ class OllamaProvider(BaseProvider):
                 f"Cannot reach Ollama at {self.base_url}. Run: ollama serve"
             )
 
+    async def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> dict:
+        import httpx
+        
+        try:
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": False,
+                "tools": tools,
+                "options": {"temperature": 0.1, "num_predict": 4096},
+            }
+
+            resp = await self._client.post("/api/chat", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            message = data.get("message", {})
+            
+            if "tool_calls" in message and message["tool_calls"]:
+                tool_calls = []
+                for tc in message["tool_calls"]:
+                    tool_calls.append({
+                        "id": tc.get("id", ""),
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"]
+                    })
+                return {
+                    "type": "tool_calls",
+                    "tool_calls": tool_calls,
+                    "assistant_message": message,  # raw Ollama assistant message with tool_calls
+                }
+            else:
+                return {"type": "text", "content": message.get("content", "")}
+        except httpx.HTTPStatusError as e:
+            raise ProviderError(
+                f"Ollama returned HTTP {e.response.status_code}. "
+                f"Is the model '{self.model}' loaded? Run: ollama pull {self.model}"
+            ) from e
+        except httpx.ConnectError:
+            raise ProviderNotConfiguredError(
+                f"Cannot reach Ollama at {self.base_url}. Run: ollama serve"
+            )
+
     async def stream(
         self, user: str, system: str = "", temperature: float = 0.2
     ) -> AsyncIterator[str]:

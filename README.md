@@ -104,7 +104,7 @@ graph TD
 
 1. **Classifier**: Identifies the intent of your task (coding, conversational, research) to intelligently toggle RAG, Web Search, or Committee deliberation.
 2. **RAG + Web**: Retrieves semantically relevant context from your ingested codebase and history, grounding the agents with accurate knowledge before planning.
-3. **Committee**: Planner, Critic, and Resolver agents deliberately analyze the request and negotiate a safe, actionable, multi-step execution plan.
+3. **Committee & Interception Layer**: Planner, Critic, and Resolver agents deliberately analyze the request. **Unique to SumoSpace**, the Critic agent implements an active mid-loop interception layer: it can trap an active tool call before execution and mutate the arguments or reject it entirely based on runtime context (e.g. enforcing path restrictions or injecting missing context), all through structured `HookResult` objects.
 4. **Tool Executor**: Runs the approved steps against the host system (executing shell commands, patching files, reading web pages) while enforcing safety checks.
 5. **Synthesis**: Combines the original task intent, retrieved context, and tool output into a cohesive and complete final answer.
 

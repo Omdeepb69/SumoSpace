@@ -24,6 +24,29 @@ class BaseProvider(ABC):
         max_tokens: int = 2048,
     ) -> str: ...
 
+    async def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> dict:
+        """
+        Native tool calling endpoint. Must return a dict containing either:
+        {"type": "text", "content": "..."}
+        or
+        {"type": "tool_calls", "tool_calls": [{\"name\": \"...\", \"arguments\": {...}}],
+         "assistant_message": <dict to append to messages as the assistant turn>}
+
+        The assistant_message is the raw provider message that should be appended
+        to the conversation so the model can track what it asked for.
+        """
+        raise NotImplementedError(f"Native tool calling not supported by {self.name}")
+
+    def format_tool_result(self, tool_call_id: str, name: str, content: str) -> dict | list[dict]:
+        """
+        Format a tool execution result into the provider-specific message structure.
+        """
+        return {"role": "tool", "content": content, "name": name}
+
     async def stream(
         self,
         user: str,

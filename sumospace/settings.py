@@ -1,5 +1,5 @@
 from typing import Optional, TYPE_CHECKING, Literal
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
@@ -58,16 +58,24 @@ class SumoSettings(BaseSettings):
             "Equivalent to dry_run=True but permanent and settings-driven."
         )
     )
-    execution_mode: Literal["plan", "react"] = Field(
+    
+    execution_mode: Literal["react", "plan_execute"] = Field(
         "react",
         description=(
-            "Controls how tools are executed after committee approval.\n"
-            "'plan'  — Static: all step parameters are set at planning time, then executed blindly.\n"
-            "'react' — Adaptive: the LLM sees each tool's output before deciding the next action.\n"
-            "Use 'react' for editing tasks where tool parameters depend on prior outputs.\n"
-            "Use 'plan' for simple read-only or deterministic workflows."
+            "Execution strategy. 'react' acts autonomously step-by-step. "
+            "'plan_execute' forces a full upfront plan, then executes each step in isolation. "
+            "The legacy value 'plan' is accepted and normalised to 'plan_execute'."
         )
     )
+
+    @field_validator("execution_mode", mode="before")
+    @classmethod
+    def _normalise_execution_mode(cls, v: str) -> str:
+        """Accept the legacy 'plan' alias and map it to 'plan_execute'."""
+        if v == "plan":
+            return "plan_execute"
+        return v
+
     react_max_steps: int = Field(
         30,
         description="Maximum number of tool calls in a single ReAct execution loop."

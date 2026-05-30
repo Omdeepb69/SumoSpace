@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 from pathlib import Path
 from sumospace.settings import SumoSettings
 from sumospace.kernel import SumoKernel
@@ -9,6 +9,7 @@ from sumospace.kernel import SumoKernel
 def media_settings(tmp_path):
     return SumoSettings(
         chroma_base=str(tmp_path / "chroma"),
+        provider="mock",
         media_enabled=True,
         embedding_provider="local",
         embedding_model="BAAI/bge-base-en-v1.5",
@@ -17,12 +18,22 @@ def media_settings(tmp_path):
     )
 
 
+@pytest.fixture(autouse=True)
+def mock_router():
+    with patch("sumospace.kernel.ProviderRouter") as MockRouter:
+        instance = MagicMock()
+        instance.initialize = AsyncMock()
+        MockRouter.return_value = instance
+        yield MockRouter
+
+
 @pytest.fixture
 def mock_embedders():
     """Mock all heavy deep learning models to avoid 1GB+ downloads during tests."""
     with patch("sumospace.embedders.TextEmbedder.embed") as mock_text_batch, \
          patch("sumospace.embedders.TextEmbedder.embed_one") as mock_text_one, \
          patch("sumospace.embedders.CLIPEmbedder.embed_image") as mock_clip_img, \
+         patch("sumospace.embedders.CLIPEmbedder.embed_images_batch") as mock_clip_batch, \
          patch("sumospace.embedders.CLIPEmbedder.embed_text_for_image_search") as mock_clip_text, \
          patch("sumospace.embedders.WhisperTranscriber.transcribe") as mock_whisper_full, \
          patch("sumospace.embedders.WhisperTranscriber.transcribe_chunks") as mock_whisper_chunk, \
@@ -31,6 +42,7 @@ def mock_embedders():
         mock_text_batch.return_value = [[0.1] * 768]
         mock_text_one.return_value = [0.1] * 768
         mock_clip_img.return_value = [0.5] * 512
+        mock_clip_batch.return_value = [[0.5] * 512]
         mock_clip_text.return_value = [0.5] * 512
         
         mock_whisper_full.return_value = "This is a mock transcription."
@@ -45,6 +57,7 @@ def mock_embedders():
             "text_batch": mock_text_batch,
             "text_one": mock_text_one,
             "clip_img": mock_clip_img,
+            "clip_batch": mock_clip_batch,
             "clip_text": mock_clip_text,
             "whisper_full": mock_whisper_full,
             "whisper_chunk": mock_whisper_chunk,
@@ -69,8 +82,8 @@ async def test_search_empty_db_returns_empty_list(mock_embedders, tmp_path):
         media_enabled=True,
         chroma_base=str(tmp_path / ".sumo_db"),
     )
-    from sumospace.media_search import MediaSearchEngine
-    engine = MediaSearchEngine(settings)
+    from sumospace.media_search import MultimodalSearchEngine
+    engine = MultimodalSearchEngine(settings)
     results = engine.search("anything", top_k=3)
     assert results == []
 
@@ -157,8 +170,10 @@ async def test_ingest_video(mock_videocapture, media_settings, mock_embedders, t
         
         async with SumoKernel(settings=media_settings) as kernel:
             # We must mock os.system to prevent ffmpeg from trying to run
-            with patch("os.system") as mock_os:
+            with patch("os.system") as mock_os, patch("PIL.Image.fromarray") as mock_fromarray:
+                mock_fromarray.return_value = MagicMock()
                 results = await kernel.ingest_media(str(test_file))
+                print(f"Error: {results[0].error}")
                 assert len(results) == 1
                 assert results[0].modality == "video"
                 # chunks = 1 frame + 0 audio (ffmpeg mocked out)

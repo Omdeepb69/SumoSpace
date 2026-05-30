@@ -44,6 +44,66 @@ class AnthropicProvider(BaseProvider):
         response = await self._client.messages.create(**kwargs)
         return response.content[0].text
 
+    async def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> dict:
+        anthropic_tools = []
+        for t in tools:
+            anthropic_tools.append({
+                "name": t["function"]["name"],
+                "description": t["function"]["description"],
+                "input_schema": t["function"]["parameters"]
+            })
+            
+        kwargs: dict = {
+            "model": self.model,
+            "max_tokens": 4096,
+            "temperature": 0.1,
+            "messages": messages,
+            "tools": anthropic_tools,
+        }
+        
+        system = next((m["content"] for m in messages if m["role"] == "system"), None)
+        if system:
+            kwargs["system"] = system
+            kwargs["messages"] = [m for m in messages if m["role"] != "system"]
+
+        response = await self._client.messages.create(**kwargs)
+        
+        tool_calls = []
+        text_content = ""
+        for block in response.content:
+            if block.type == "tool_use":
+                tool_calls.append({
+                    "id": block.id,
+                    "name": block.name,
+                    "arguments": block.input
+                })
+            elif block.type == "text":
+                text_content += block.text
+                
+        if tool_calls:
+            return {
+                "type": "tool_calls",
+                "tool_calls": tool_calls,
+                "assistant_message": {"role": "assistant", "content": [b.model_dump() for b in response.content]}
+            }
+        return {"type": "text", "content": text_content}
+
+    def format_tool_result(self, tool_call_id: str, name: str, content: str) -> dict | list[dict]:
+        return {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_call_id,
+                    "content": content
+                }
+            ]
+        }
+
     async def stream(
         self, user: str, system: str = "", temperature: float = 0.2
     ) -> AsyncIterator[str]:

@@ -639,7 +639,7 @@ Starting in 3 seconds...
     out_path.write_text(report)
 
     json_path = out_path.with_suffix(".json")
-    json_path.write_text(json.dumps(asdict(run), indent=2))
+    json_path.write_text(json.dumps(asdict(run), default=str, indent=2))
 
     print(f"\n{'='*60}")
     print(f"Results saved to: {out_path}")
