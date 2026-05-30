@@ -111,6 +111,9 @@ class OllamaProvider(BaseProvider):
         }
 
     async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> dict:
+        def serialize_msg(msg):
+            return msg.model_dump(exclude_none=True) if hasattr(msg, "model_dump") else dict(msg)
+
         try:
             response = await self._client.chat(
                 model=self.model,
@@ -119,19 +122,19 @@ class OllamaProvider(BaseProvider):
                 options={"temperature": 0.1}
             )
             
-            if response.get("message", {}).get("tool_calls"):
-                tool_calls = response["message"]["tool_calls"]
+            if response.message and response.message.tool_calls:
+                tool_calls = response.message.tool_calls
                 return {
                     "type": "tool_calls",
                     "tool_calls": [
                         {
-                            "id": tc["function"]["name"],
-                            "name": tc["function"]["name"],
-                            "arguments": dict(tc["function"]["arguments"])
+                            "id": tc.function.name,
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments
                         }
                         for tc in tool_calls
                     ],
-                    "assistant_message": response["message"]
+                    "assistant_message": serialize_msg(response.message)
                 }
             else:
                 # Modern fallback: structured JSON output, not text parsing
@@ -152,7 +155,7 @@ class OllamaProvider(BaseProvider):
                     options={"temperature": 0.0}
                 )
                 
-                content = forced_response.get("message", {}).get("content", "")
+                content = forced_response.message.content or ""
                 try:
                     tool_call = json.loads(content)
                     return {
@@ -167,8 +170,8 @@ class OllamaProvider(BaseProvider):
                 except json.JSONDecodeError:
                     return {
                         "type": "text",
-                        "content": response.get("message", {}).get("content", ""),
-                        "assistant_message": response.get("message", {})
+                        "content": content,
+                        "assistant_message": serialize_msg(forced_response.message)
                     }
         except Exception as e:
             raise ProviderError(f"Ollama native API error: {e}") from e
