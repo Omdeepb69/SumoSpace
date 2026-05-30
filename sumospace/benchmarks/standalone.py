@@ -34,7 +34,7 @@ from typing import Callable
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "sample_project"
 
 DEFAULT_PROVIDER = "ollama"
-DEFAULT_MODEL    = "phi3:mini"
+DEFAULT_MODEL    = "llama3.1:8b"
 DEFAULT_MODES    = ["disabled", "plan_only", "critique_only", "full"]
 
 # ── Result types ──────────────────────────────────────────────────────────────

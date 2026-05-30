@@ -84,8 +84,8 @@ try:
     print("\n4. Installing SumoSpace from cloned repository...")
     subprocess.run("pip install -e /kaggle/working/SumoSpace[media,loaders,faiss]", shell=True, check=False)
     
-    print("\n5. Pulling models (qwen2.5-coder:14b for higher quality, fits T4 16GB at ~10GB 4-bit)...")
-    subprocess.run("ollama pull qwen2.5-coder:14b", shell=True, check=False)
+    print("\n5. Pulling models (llama3.1:8b for higher quality, fits T4 16GB at ~10GB 4-bit)...")
+    subprocess.run("ollama pull llama3.1:8b", shell=True, check=False)
 
     import sys
     if "/kaggle/working/SumoSpace" not in sys.path:
@@ -121,12 +121,12 @@ async def section2():
     try:
         print("Available Presets:")
         presets = {
-            "for_chat":              SumoSettings.for_chat(provider="ollama", model="qwen2.5-coder:14b"),
-            "for_chat_with_context": SumoSettings.for_chat_with_context(provider="ollama", model="qwen2.5-coder:14b"),
-            "for_chat_stateless":    SumoSettings.for_chat_stateless(provider="ollama", model="qwen2.5-coder:14b"),
-            "for_coding":            SumoSettings.for_coding(provider="ollama", model="qwen2.5-coder:14b"),
-            "for_research":          SumoSettings.for_research(provider="ollama", model="qwen2.5-coder:14b"),
-            "for_review":            SumoSettings.for_review(provider="ollama", model="qwen2.5-coder:14b"),
+            "for_chat":              SumoSettings.for_chat(provider="ollama", model="llama3.1:8b"),
+            "for_chat_with_context": SumoSettings.for_chat_with_context(provider="ollama", model="llama3.1:8b"),
+            "for_chat_stateless":    SumoSettings.for_chat_stateless(provider="ollama", model="llama3.1:8b"),
+            "for_coding":            SumoSettings.for_coding(provider="ollama", model="llama3.1:8b"),
+            "for_research":          SumoSettings.for_research(provider="ollama", model="llama3.1:8b"),
+            "for_review":            SumoSettings.for_review(provider="ollama", model="llama3.1:8b"),
         }
         for name, preset in presets.items():
             print(f" - {name}")
@@ -139,7 +139,7 @@ async def section2():
         print("-" * 80)
         
         for mode in modes:
-            settings = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss", committee_enabled=(mode!="disabled"), committee_mode=mode if mode!="disabled" else "full")
+            settings = SumoSettings(provider="ollama", model="llama3.1:8b", vector_store="faiss", committee_enabled=(mode!="disabled"), committee_mode=mode if mode!="disabled" else "full")
             start = time.time()
             async with SumoKernel(settings=settings) as kernel:
                 try:
@@ -178,7 +178,7 @@ async def section3():
             print("Before editing:")
             print(file_path.read_text())
             
-            settings = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss", workspace=tmpdir)
+            settings = SumoSettings(provider="ollama", model="llama3.1:8b", vector_store="faiss", workspace=tmpdir)
             async with SumoKernel(settings=settings) as kernel:
                 trace = await kernel.run("Add docstrings to all functions in math_ops.py")
                 session_id = trace.session_id
@@ -232,7 +232,7 @@ async def section4():
             print("SumoSpace source not found. Using current directory.")
             ws = "."
             
-        settings = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=False)
+        settings = SumoSettings(provider="ollama", model="llama3.1:8b", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=False)
         
         async with SumoKernel(settings=settings) as kernel:
             print("Ingesting codebase...")
@@ -243,7 +243,7 @@ async def section4():
             
         print("\nEnabling Multi-Query RAG...")
         # Create a new kernel with updated settings to properly reconfigure RAG
-        settings_multi = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True)
+        settings_multi = SumoSettings(provider="ollama", model="llama3.1:8b", vector_store="faiss", workspace=ws, rag_enabled=True, rag_multi_query=True)
         async with SumoKernel(settings=settings_multi) as kernel_multi:
             trace2 = await kernel_multi.run(f"Answer the following question based on the codebase: {q1}")
             print(f"Answer (Multi-Query): {trace2.final_answer}")
@@ -339,7 +339,7 @@ async def section6():
     hooks.register("on_kernel_shutdown", h_shutdown)
     
     try:
-        settings = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss")
+        settings = SumoSettings(provider="ollama", model="llama3.1:8b", vector_store="faiss")
         async with SumoKernel(settings=settings, hooks=hooks) as kernel:
             await kernel.run("Write a python script to calculate 5 + 5")
             
@@ -390,7 +390,7 @@ async def section7():
         print(f"Direct test reverse_string('SumoSpace'): {(await tool1.run(text='SumoSpace')).output}")
         print(f"Direct test count_words('Hello world from Kaggle'): {(await tool2.run(text='Hello world from Kaggle')).output}")
 
-        settings = SumoSettings(provider="ollama", model="qwen2.5-coder:14b", vector_store="faiss")
+        settings = SumoSettings(provider="ollama", model="llama3.1:8b", vector_store="faiss")
         async with SumoKernel(settings=settings) as kernel:
             kernel.tools.register(tool1)
             kernel.tools.register(tool2)
@@ -424,7 +424,7 @@ async def section8():
     global test_session_id
     try:
         # Create a new AuditLogger scoped to the workspace used earlier or current dir
-        logger = AuditLogger(SumoSettings(provider="ollama", model="qwen2.5-coder:14b"))
+        logger = AuditLogger(SumoSettings(provider="ollama", model="llama3.1:8b"))
         
         print("Audit Stats:")
         stats = logger.stats()
@@ -436,7 +436,7 @@ async def section8():
             print(f" - {s.get('session_id')} | Duration: {s.get('duration_ms')}ms | Success: {s.get('success')}")
             
         print("Generating a quick session to test export...")
-        async with SumoKernel(settings=SumoSettings(provider="ollama", model="qwen2.5-coder:14b")) as kernel:
+        async with SumoKernel(settings=SumoSettings(provider="ollama", model="llama3.1:8b")) as kernel:
             trace = await kernel.run("Say 'hello audit'")
             target_session = trace.session_id
             
@@ -472,7 +472,7 @@ try:
     cmd = [
         "python", "-m", "sumospace.benchmarks.standalone",
         "--provider", "ollama",
-        "--model", "qwen2.5-coder:14b",
+        "--model", "llama3.1:8b",
         "--modes", "disabled,plan_only,critique_only,full"
     ]
     

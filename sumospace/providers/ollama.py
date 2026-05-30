@@ -132,51 +132,79 @@ class OllamaProvider(BaseProvider):
                 f"Cannot reach Ollama at {self.base_url}. Run: ollama serve"
             )
 
-    async def complete_with_tools(
-        self,
-        messages: list[dict],
-        tools: list[dict],
-    ) -> dict:
-        import httpx
+    def format_tool_result(self, tool_call_id, tool_name, content) -> dict:
+        return {
+            "role": "tool",
+            "content": str(content)
+        }
+
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> dict:
+        import ollama as ollama_sdk
+        import asyncio
+        import json
         
         try:
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                "stream": False,
-                "tools": tools,
-                "options": {"temperature": 0.1, "num_predict": 4096},
-            }
-
-            resp = await self._client.post("/api/chat", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            message = data.get("message", {})
+            response = await asyncio.to_thread(
+                ollama_sdk.chat,
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                options={"temperature": 0.1}
+            )
             
-            if "tool_calls" in message and message["tool_calls"]:
-                tool_calls = []
-                for tc in message["tool_calls"]:
-                    tool_calls.append({
-                        "id": tc.get("id", ""),
-                        "name": tc["function"]["name"],
-                        "arguments": tc["function"]["arguments"]
-                    })
+            if response.message.tool_calls:
                 return {
                     "type": "tool_calls",
-                    "tool_calls": tool_calls,
-                    "assistant_message": message,  # raw Ollama assistant message with tool_calls
+                    "tool_calls": [
+                        {
+                            "id": tc.function.name,
+                            "name": tc.function.name,
+                            "arguments": dict(tc.function.arguments)
+                        }
+                        for tc in response.message.tool_calls
+                    ],
+                    "assistant_message": {"role": "assistant", "content": response.message.content or "", "tool_calls": [tc.model_dump() for tc in response.message.tool_calls]}
                 }
             else:
-                return {"type": "text", "content": message.get("content", "")}
-        except httpx.HTTPStatusError as e:
-            raise ProviderError(
-                f"Ollama returned HTTP {e.response.status_code}. "
-                f"Is the model '{self.model}' loaded? Run: ollama pull {self.model}"
-            ) from e
-        except httpx.ConnectError:
-            raise ProviderNotConfiguredError(
-                f"Cannot reach Ollama at {self.base_url}. Run: ollama serve"
-            )
+                # Modern fallback: structured JSON output, not text parsing
+                forced_response = await asyncio.to_thread(
+                    ollama_sdk.chat,
+                    model=self.model,
+                    messages=messages + [{
+                        "role": "user",
+                        "content": "You must respond with a JSON object specifying which tool to call and its arguments."
+                    }],
+                    format={
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "arguments": {"type": "object"}
+                        },
+                        "required": ["name", "arguments"]
+                    },
+                    options={"temperature": 0.0}
+                )
+                
+                try:
+                    tool_call = json.loads(forced_response.message.content)
+                    return {
+                        "type": "tool_calls",
+                        "tool_calls": [{
+                            "id": tool_call.get("name"),
+                            "name": tool_call.get("name"),
+                            "arguments": tool_call.get("arguments", {})
+                        }],
+                        "assistant_message": {"role": "assistant", "content": forced_response.message.content}
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        "type": "text",
+                        "content": response.message.content or "",
+                        "assistant_message": {"role": "assistant", "content": response.message.content or ""}
+                    }
+        except Exception as e:
+            from sumospace.exceptions import ProviderError
+            raise ProviderError(f"Ollama native API error: {e}") from e
 
     async def stream(
         self, user: str, system: str = "", temperature: float = 0.2

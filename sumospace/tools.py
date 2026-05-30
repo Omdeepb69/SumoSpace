@@ -98,6 +98,20 @@ class ReadFileTool(BaseTool):
     description = "Read the contents of a file. Parameters: path (string)."
     param_aliases = {"file_path": "path", "filepath": "path", "filename": "path", "file": "path"}
 
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the file within the workspace"
+            }
+        },
+        "required": [
+            "path"
+        ],
+        "additionalProperties": False
+    }
+
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
 
@@ -132,6 +146,30 @@ class ReadChunkTool(BaseTool):
     name = "read_chunk"
     description = "Read a specific chunk of lines from a file to avoid context explosion. Parameters: path (string), start_line (integer, 1-indexed), end_line (integer, 1-indexed)."
     param_aliases = {"file_path": "path", "filepath": "path", "filename": "path", "file": "path", "start": "start_line", "end": "end_line"}
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the file within the workspace"
+            },
+            "start_line": {
+                "type": "integer",
+                "description": "1-indexed starting line number to read"
+            },
+            "end_line": {
+                "type": "integer",
+                "description": "1-indexed ending line number to read"
+            }
+        },
+        "required": [
+            "path",
+            "start_line",
+            "end_line"
+        ],
+        "additionalProperties": False
+    }
     
     def __init__(self, workspace: str = "."):
         self.workspace = workspace
@@ -169,6 +207,25 @@ class WriteFileTool(BaseTool):
     name = "write_file"
     description = "Write text to a new file, or completely overwrite an existing file. Parameters: path (string), content (string)."
     param_aliases = {"file_path": "path", "filepath": "path", "filename": "path", "file": "path", "text": "content", "data": "content", "input": "content", "tool_input": "content", "body": "content", "code": "content", "new_content": "content"}
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the file within the workspace"
+            },
+            "content": {
+                "type": "string",
+                "description": "The complete text content to write to the file"
+            }
+        },
+        "required": [
+            "path",
+            "content"
+        ],
+        "additionalProperties": False
+    }
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -239,6 +296,20 @@ class ListDirectoryTool(BaseTool):
     description = "List all files and directories in a given path. Parameters: path (string, default '.')."
     param_aliases = {"dir": "path", "directory": "path", "folder": "path"}
 
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the directory to list (e.g. '.')"
+            }
+        },
+        "required": [
+            "path"
+        ],
+        "additionalProperties": False
+    }
+
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
 
@@ -283,6 +354,24 @@ class SearchFilesTool(BaseTool):
     name = "search_files"
     description = "Search for a regex pattern across files in a directory. Parameters: pattern (string), path (string, default '.'), extension (string, optional)."
     param_aliases = {"query": "pattern", "search": "pattern", "regex": "pattern", "dir": "path", "directory": "path", "folder": "path"}
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The text pattern to search for"
+            },
+            "path": {
+                "type": "string",
+                "description": "Relative path to search within (e.g. '.')"
+            }
+        },
+        "required": [
+            "query"
+        ],
+        "additionalProperties": False
+    }
 
     def __init__(self, workspace: str = "."):
         self._workspace = workspace
@@ -345,6 +434,30 @@ class ReplaceTextTool(BaseTool):
         "search": "old_text", "search_text": "old_text", "pattern": "old_text", "before": "old_text", "from": "old_text",
         "new": "new_text", "replacement": "new_text", "replacement_text": "new_text", "replace": "new_text",
         "after": "new_text", "replace_with": "new_text", "to": "new_text", "query": "new_text"
+    }
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the file to modify"
+            },
+            "old_text": {
+                "type": "string",
+                "description": "The exact original text block to replace"
+            },
+            "new_text": {
+                "type": "string",
+                "description": "The new text block to insert in its place"
+            }
+        },
+        "required": [
+            "path",
+            "old_text",
+            "new_text"
+        ],
+        "additionalProperties": False
     }
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
@@ -497,6 +610,25 @@ class PatchFileTool(BaseTool):
     """Apply a unified diff patch to a file."""
     name = "patch_file"
     description = "Apply a unified diff patch to a file. Parameters: path (string), patch (string, unified diff format)."
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the file to patch"
+            },
+            "patch": {
+                "type": "string",
+                "description": "The standard unified diff patch to apply"
+            }
+        },
+        "required": [
+            "path",
+            "patch"
+        ],
+        "additionalProperties": False
+    }
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self._workspace = workspace
@@ -685,6 +817,30 @@ class ReplaceFunctionTool(BaseTool):
     description = "Replace an entire Python function or method using AST. Parameters: path (string), function_name (string), new_code (string)."
     param_aliases = {"func": "function_name", "target": "function_name", "code": "new_code", "file": "path"}
 
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the Python file"
+            },
+            "function_name": {
+                "type": "string",
+                "description": "Name of the function to replace"
+            },
+            "new_code": {
+                "type": "string",
+                "description": "The complete new source code for the function"
+            }
+        },
+        "required": [
+            "path",
+            "function_name",
+            "new_code"
+        ],
+        "additionalProperties": False
+    }
+
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self.engine = ASTPatchEngine(workspace, snapshot_manager, run_id)
 
@@ -726,6 +882,30 @@ class ReplaceClassTool(BaseTool):
     description = "Replace an entire Python class using AST. Parameters: path (string), class_name (string), new_code (string)."
     param_aliases = {"class": "class_name", "code": "new_code", "file": "path"}
 
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the Python file"
+            },
+            "class_name": {
+                "type": "string",
+                "description": "Name of the class to replace"
+            },
+            "new_code": {
+                "type": "string",
+                "description": "The complete new source code for the class"
+            }
+        },
+        "required": [
+            "path",
+            "class_name",
+            "new_code"
+        ],
+        "additionalProperties": False
+    }
+
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self.engine = ASTPatchEngine(workspace, snapshot_manager, run_id)
 
@@ -765,6 +945,30 @@ class InsertMethodTool(BaseTool):
     name = "insert_method"
     description = "Safely insert a new method into an existing Python class. Parameters: path (string), class_name (string), new_method_code (string)."
     param_aliases = {"code": "new_method_code", "file": "path"}
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Relative path to the Python file"
+            },
+            "class_name": {
+                "type": "string",
+                "description": "Name of the class to insert into"
+            },
+            "new_code": {
+                "type": "string",
+                "description": "The new method source code to insert"
+            }
+        },
+        "required": [
+            "path",
+            "class_name",
+            "new_code"
+        ],
+        "additionalProperties": False
+    }
 
     def __init__(self, workspace: str = ".", snapshot_manager=None, run_id: str | None = None):
         self.engine = ASTPatchEngine(workspace, snapshot_manager, run_id)
@@ -810,6 +1014,24 @@ class InsertMethodTool(BaseTool):
 class AstSearchTool(BaseTool):
     name = "ast_search"
     description = "List all classes and functions in a Python file. Parameters: path (string)."
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "symbol": {
+                "type": "string",
+                "description": "Name of the function, class, or symbol to find"
+            },
+            "path": {
+                "type": "string",
+                "description": "Directory to search in (e.g. '.')"
+            }
+        },
+        "required": [
+            "symbol"
+        ],
+        "additionalProperties": False
+    }
     
     def __init__(self, workspace: str = ".", **_):
         self.workspace = workspace
@@ -835,6 +1057,24 @@ class ShellTool(BaseTool):
     name = "shell"
     description = "Run a bash command. Parameters: command (string)."
     param_aliases = {"cmd": "command", "args": "command", "sh": "command"}
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "The bash command to run (e.g. 'pytest tests/')"
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "Timeout in seconds (default 60)"
+            }
+        },
+        "required": [
+            "command"
+        ],
+        "additionalProperties": False
+    }
 
     BLOCKED_PATTERNS = [re.compile(p) for p in [
         r"\brm\s+-r", r"\bmkfs\b", r"\bdd\s+if=", r":\(\)\{.*\}", r"\bchmod\s+-R\s+777\b",
@@ -912,6 +1152,20 @@ class WebSearchTool(BaseTool):
     name = "web_search"
     description = "Search the web using DuckDuckGo (no API key required)."
 
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The search query to send to DuckDuckGo"
+            }
+        },
+        "required": [
+            "query"
+        ],
+        "additionalProperties": False
+    }
+
     def __init__(self, max_results: int = 5):
         self.max_results = max_results
 
@@ -957,6 +1211,20 @@ class FetchURLTool(BaseTool):
     name = "fetch_url"
     description = "Fetch the text content of a web page."
 
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "The full HTTP/HTTPS URL to fetch"
+            }
+        },
+        "required": [
+            "url"
+        ],
+        "additionalProperties": False
+    }
+
     async def run(self, url: str, timeout: int = 20, **_) -> ToolResult:
         import time
         start = time.monotonic()
@@ -990,6 +1258,25 @@ class FetchURLTool(BaseTool):
 class DockerTool(BaseTool):
     name = "docker"
     description = "Run Docker CLI commands (build, run, exec, ps, compose)."
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "Docker action: build, run, exec, ps, compose"
+            },
+            "args": {
+                "type": "string",
+                "description": "Arguments to pass to the docker command"
+            }
+        },
+        "required": [
+            "action",
+            "args"
+        ],
+        "additionalProperties": False
+    }
 
     def __init__(self, workspace: str = ".", timeout: int = 120):
         self._shell = ShellTool(workspace=workspace, timeout=timeout)
@@ -1035,6 +1322,29 @@ class DependencyTool(BaseTool):
     name = "dependencies"
     description = "Install, update, or inspect Python/Node dependencies."
 
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "Action: install, check, export"
+            },
+            "manager": {
+                "type": "string",
+                "description": "Package manager: pip, npm, poetry"
+            },
+            "packages": {
+                "type": "string",
+                "description": "Space-separated list of packages"
+            }
+        },
+        "required": [
+            "action",
+            "manager"
+        ],
+        "additionalProperties": False
+    }
+
     def __init__(self, workspace: str = "."):
         self._shell = ShellTool(workspace=workspace, timeout=120)
 
@@ -1073,6 +1383,32 @@ class BrowserTool(BaseTool):
     """
     name = "browser"
     description = "Automate browser interactions: navigate, click, fill forms, screenshot."
+
+    schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "Action: goto, click, type, screenshot, read"
+            },
+            "url": {
+                "type": "string",
+                "description": "URL to navigate to (for goto)"
+            },
+            "selector": {
+                "type": "string",
+                "description": "CSS selector for click/type"
+            },
+            "text": {
+                "type": "string",
+                "description": "Text to type into input fields"
+            }
+        },
+        "required": [
+            "action"
+        ],
+        "additionalProperties": False
+    }
 
     def __init__(self):
         self._browser = None
