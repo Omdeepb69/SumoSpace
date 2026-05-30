@@ -55,7 +55,7 @@ try:
     
     print("\n1.5 Installing dependencies (zstd for Ollama, nest_asyncio for Jupyter)...")
     subprocess.run("apt-get update && apt-get install -y zstd", shell=True, check=False)
-    subprocess.run("pip install nest_asyncio", shell=True, check=False)
+    subprocess.run("pip install -q nest_asyncio", shell=True, check=False)
     
     import nest_asyncio
     nest_asyncio.apply()
@@ -81,34 +81,47 @@ try:
     os.makedirs("/kaggle/working", exist_ok=True)
     subprocess.run(f"git clone https://github.com/Omdeepb69/SumoSpace {repo_dir}", shell=True, check=False)
         
-    print("\n4. Installing SumoSpace from cloned repository...")
-    subprocess.run("pip install -e /kaggle/working/SumoSpace[media,loaders,faiss]", shell=True, check=False)
+    print("\n4. Installing SumoSpace and the Ollama SDK from cloned repository...")
+    # Install SumoSpace extras; the ollama SDK must be explicitly installed
+    # because it is an optional dep not pulled in by the base [loaders] extra.
+    subprocess.run("pip install -q -e /kaggle/working/SumoSpace[media,loaders,faiss]", shell=True, check=False)
+    subprocess.run("pip install -q ollama>=0.3.0", shell=True, check=False)
     
     print("\n5. Pulling models (llama3.1:8b for higher quality, fits T4 16GB at ~10GB 4-bit)...")
     subprocess.run("ollama pull llama3.1:8b", shell=True, check=False)
 
-    import sys
     if "/kaggle/working/SumoSpace" not in sys.path:
         sys.path.insert(0, "/kaggle/working/SumoSpace")
         
     # Force Jupyter to drop cached modules from previous cell runs
-    import sys
     for mod in list(sys.modules.keys()):
         if mod == "sumospace" or mod.startswith("sumospace."):
             del sys.modules[mod]
 
-    from sumospace import SumoKernel, SumoSettings
-    from sumospace.tools import BaseTool, ToolResult
-    from sumospace.audit import AuditLogger
-    from sumospace.hooks import HookRegistry
-    from sumospace.loaders.github import GitHubLoader
-    from sumospace.loaders.youtube import YouTubeLoader
-    
     print_pass_fail("Environment Setup", True)
     summary_results.append(("Section 1: Environment Setup", True, "Ollama started, models pulled, repo cloned."))
 except Exception as e:
     print_pass_fail("Environment Setup", False, str(e))
     summary_results.append(("Section 1: Environment Setup", False, str(e)))
+    raise  # Hard stop — every subsequent section depends on Ollama + SumoSpace being installed
+
+# ---------------------------------------------------------------------------
+# Top-level imports — OUTSIDE the try block so NameError is impossible below
+# ---------------------------------------------------------------------------
+if "/kaggle/working/SumoSpace" not in sys.path:
+    sys.path.insert(0, "/kaggle/working/SumoSpace")
+
+from sumospace import SumoKernel, SumoSettings
+from sumospace.tools import BaseTool, ToolResult
+from sumospace.audit import AuditLogger
+from sumospace.hooks import HookRegistry
+from sumospace.loaders.github import GitHubLoader
+from sumospace.loaders.youtube import YouTubeLoader
+import ollama as ollama_sdk
+
+print("✓ All imports successful")
+
+
 
 
 # -----------------------------------------------------------------------------
