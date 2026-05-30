@@ -112,6 +112,130 @@ except Exception as e:
 
 
 # -----------------------------------------------------------------------------
+# Section 1.5 — Pre-flight verification (tool-calling pipeline check)
+# -----------------------------------------------------------------------------
+print_section("Section 1.5 — Pre-flight verification",
+              "Verify the Ollama SDK tool-calling pipeline BEFORE running the full benchmark.\n"
+              "    Q1: Does ollama.chat() with tools= return populated tool_calls?\n"
+              "    Q2: Does a single-task smoke test complete end-to-end (file modified)?\n"
+              "    Q3: Is httpx fully removed from ollama.py?")
+
+# --- Q1: Raw SDK tool-calling test ---
+print("\n--- Q1: Raw SDK tool-calling test ---")
+try:
+    import ollama as ollama_sdk
+    q1_response = ollama_sdk.chat(
+        model="llama3.1:8b",
+        messages=[{"role": "user", "content": "Create a file named 'hello.txt' with the content 'Hello World'"}],
+        tools=[{
+            "type": "function",
+            "function": {
+                "name": "write_file",
+                "description": "Write content to a file at the given path",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Relative path to the file"},
+                        "content": {"type": "string", "description": "The complete text content to write"}
+                    },
+                    "required": ["path", "content"]
+                }
+            }
+        }]
+    )
+    q1_tool_calls = q1_response.message.tool_calls
+    q1_has_tools = q1_tool_calls is not None and len(q1_tool_calls) > 0
+    print(f"  response.message.tool_calls = {q1_tool_calls}")
+    print(f"  tool_calls populated: {q1_has_tools}")
+    if q1_has_tools:
+        for tc in q1_tool_calls:
+            print(f"    -> {tc.function.name}({dict(tc.function.arguments)})")
+    print_pass_fail("Q1: Native tool_calls populated", q1_has_tools)
+    summary_results.append(("Pre-flight Q1: Native tool_calls", q1_has_tools,
+                            f"tool_calls={'populated' if q1_has_tools else 'None — fallback will be used'}"))
+except Exception as e:
+    print_pass_fail("Q1: Native tool_calls", False, str(e))
+    summary_results.append(("Pre-flight Q1: Native tool_calls", False, str(e)))
+
+# --- Q2: End-to-end smoke test (single task, file must be modified) ---
+print("\n--- Q2: End-to-end smoke test ---")
+async def preflight_q2():
+    import shutil
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a simple file for the agent to modify
+            target = Path(tmpdir) / "greet.py"
+            target.write_text("def greet(name):\n    return f'Hello {name}'\n")
+            original_content = target.read_text()
+            print(f"  Original file:\n{textwrap.indent(original_content, '    ')}")
+
+            settings = SumoSettings(
+                provider="ollama", model="llama3.1:8b",
+                workspace=tmpdir, committee_enabled=False,
+                execution_mode="react", verbose=True,
+                max_steps=10
+            )
+            async with SumoKernel(settings=settings) as kernel:
+                trace = await kernel.run("Add a docstring to the greet function in greet.py")
+
+            steps = len(trace.step_traces) if trace.step_traces else 0
+            tools_called = [s.tool for s in trace.step_traces] if trace.step_traces else []
+            final_content = target.read_text()
+            file_changed = final_content != original_content
+            has_docstring = '"""' in final_content or "'''" in final_content
+
+            print(f"\n  steps_executed: {steps}")
+            print(f"  tools_called: {tools_called}")
+            print(f"  file_changed: {file_changed}")
+            print(f"  has_docstring: {has_docstring}")
+            print(f"  Final file:\n{textwrap.indent(final_content, '    ')}")
+
+            success = steps >= 1 and file_changed
+            print_pass_fail("Q2: End-to-end smoke test", success,
+                            f"steps={steps}, file_changed={file_changed}, docstring={has_docstring}")
+            summary_results.append(("Pre-flight Q2: Smoke test", success,
+                                    f"steps={steps}, tools={tools_called}, file_changed={file_changed}"))
+    except Exception as e:
+        print_pass_fail("Q2: End-to-end smoke test", False, str(e))
+        summary_results.append(("Pre-flight Q2: Smoke test", False, str(e)))
+
+asyncio.run(preflight_q2())
+
+# --- Q3: httpx removed from ollama.py ---
+print("\n--- Q3: httpx removal check ---")
+try:
+    ollama_provider_path = os.path.join(os.path.dirname(__file__) if '__file__' in dir() else '/kaggle/working/SumoSpace',
+                                        'sumospace', 'providers', 'ollama.py')
+    if not os.path.exists(ollama_provider_path):
+        ollama_provider_path = '/kaggle/working/SumoSpace/sumospace/providers/ollama.py'
+    
+    with open(ollama_provider_path, 'r') as f:
+        ollama_source = f.read()
+    
+    httpx_count = ollama_source.count('httpx')
+    q3_pass = httpx_count == 0
+    print(f"  File: {ollama_provider_path}")
+    print(f"  httpx references found: {httpx_count}")
+    if not q3_pass:
+        # Show the offending lines
+        for i, line in enumerate(ollama_source.splitlines(), 1):
+            if 'httpx' in line:
+                print(f"    Line {i}: {line.strip()}")
+    print_pass_fail("Q3: Zero httpx in ollama.py", q3_pass, f"{httpx_count} references")
+    summary_results.append(("Pre-flight Q3: httpx removed", q3_pass, f"{httpx_count} references found"))
+except Exception as e:
+    print_pass_fail("Q3: httpx removal check", False, str(e))
+    summary_results.append(("Pre-flight Q3: httpx removed", False, str(e)))
+
+print("\n" + "="*80)
+print(" PRE-FLIGHT SUMMARY")
+print("="*80)
+preflight_pass = all(s[1] for s in summary_results if s[0].startswith("Pre-flight"))
+print(f"Overall pre-flight: {'✅ ALL CLEAR — proceeding to benchmark' if preflight_pass else '⚠️  SOME CHECKS FAILED — benchmark may underperform'}")
+print("="*80)
+
+
+# -----------------------------------------------------------------------------
 # Section 2 — Basic inference
 # -----------------------------------------------------------------------------
 print_section("Section 2 — Basic inference",

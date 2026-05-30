@@ -175,7 +175,15 @@ class ProviderRouter:
                     return await self._secondary._complete_xml(user, system, schema, temperature, max_tokens)
                 else:
                     return await self._secondary.complete(user, system, temperature, max_tokens)
-            raise
+    async def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> dict:
+        if not hasattr(self._provider, "complete_with_tools"):
+            raise AttributeError(f"Provider {self._provider_name} does not implement complete_with_tools")
+        return await self._provider.complete_with_tools(messages, tools)
+
+    def format_tool_result(self, tool_call_id, tool_name, content) -> dict:
+        if hasattr(self._provider, "format_tool_result"):
+            return self._provider.format_tool_result(tool_call_id, tool_name, content)
+        return {"role": "tool", "content": str(content)}
 
     async def complete(self, **kwargs) -> str:
         import httpx
